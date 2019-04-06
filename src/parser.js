@@ -823,14 +823,12 @@ const parser = (() => {
         prefix("?{", function () {
             var expressions = [];
             while (node.id !== "}?") {
-                var expr = expression(symbol_table['?'] + 1);
-
-                if (node.id !== "?" && node.id !== "=>") {
+                var expr = expression(0);
+                if (node.id !== ";" && node.id !== "=>") {
                     break;
                 }
-                if (node.id === "?") {
+                if (node.id === ";") {
                     expressions.push({value: expr});
-                    advance("?");
                     advance(";");
                 } else if (node.id === "=>") {
                     advance("=>");
@@ -1295,6 +1293,34 @@ const parser = (() => {
                     // TODO scan the array of expressions to see if any of them assign variables
                     // if so, need to mark the block as one that needs to create a new frame
                     break;
+                case 'switch':
+                    result = {type: expr.type, position: expr.position};
+                    // switch expressions
+                    result.expressions = expr.expressions.map(function (item) {
+                        if (item.value) {
+                            // eval value
+                            var part_value = ast_optimize(item.value);
+                            if (part_value.consarray || (part_value.type === 'path' && part_value.steps[0].consarray)) {
+                                result.value.consarray = true;
+                            }
+                            item.value = part_value;
+                        } else {
+                            // cases
+                            var part_expr = ast_optimize(item.expr);
+                            var part_then = ast_optimize(item.then);
+                            if (part_expr.consarray || (part_expr.type === 'path' && part_expr.steps[0].consarray)) {
+                                result.expr.consarray = true;
+                            }
+                            if (part_then.consarray || (part_then.type === 'path' && part_then.steps[0].consarray)) {
+                                result.then.consarray = true;
+                            }
+                            item.expr = part_expr;
+                            item.then = part_then;
+                        }
+
+                        return item;
+                    });
+                    break;
                 case 'name':
                     result = {type: 'path', steps: [expr]};
                     if (expr.keepArray) {
@@ -1309,7 +1335,6 @@ const parser = (() => {
                 case 'variable':
                 case 'regex':
                 case 'atom':
-                case 'switch':
                 case 'comment':
                     result = expr;
                     break;
