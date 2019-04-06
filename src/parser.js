@@ -35,12 +35,18 @@ const parser = (() => {
         '^': 40,
         '**': 60,
         '..': 20,
+        '::': 10,
         ':=': 10,
         '!=': 40,
         '<=': 40,
         '>=': 40,
         '~>': 40,
+        '=>': 80,
+        '<~': 40,
+        '~X': 40,
         'and': 30,
+        '||': 30,
+        '#\'': 40,
         'or': 25,
         'in': 40,
         '&': 50,
@@ -64,8 +70,10 @@ const parser = (() => {
         var position = 0;
         var length = path.length;
 
-        var create = function (type, value) {
+        var create = function (type, value, parameters) {
             var obj = {type: type, value: value, position: position};
+            // make possible to extend object where needed
+            if (parameters !== undefined) { Object.assign(obj, parameters); }
             return obj;
         };
 
@@ -122,6 +130,44 @@ const parser = (() => {
             while (position < length && ' \t\n\r\v'.indexOf(currentChar) > -1) {
                 position++;
                 currentChar = path.charAt(position);
+            }
+            // skip single line comment
+            if (currentChar === '/' && path.charAt(position + 1) === '/') {
+                position += 2;
+                currentChar = path.charAt(position);
+                while ('\n'.indexOf(currentChar) === -1) {
+                    currentChar = path.charAt(++position);
+                    if (position >= length) {
+                        break;
+                    }
+                }
+                return next(prefix); // need this to swallow any following whitespace
+            }
+            // eja doc creates 'comment' node
+            if (currentChar === '/' && path.charAt(position + 1) === '*' && path.charAt(position + 2) === '*') {
+                // ejadocs
+                var docStart = position;
+                position += 2;
+                currentChar = path.charAt(position);
+                while (!(currentChar === '*' && path.charAt(position + 1) === '/')) {
+                    currentChar = path.charAt(++position);
+                    if (position >= length) {
+                        // no closing tag
+                        throw {
+                            code: "S0106",
+                            stack: (new Error()).stack,
+                            position: docStart
+                        };
+                    }
+                }
+                position += 2;
+                // need this to swallow any following whitespace
+                currentChar = path.charAt(position);
+                while (position < length && ' \t\n\r\v'.indexOf(currentChar) > -1) {
+                    position++;
+                    currentChar = path.charAt(position);
+                }
+                return create('comment', path.substring(docStart, position));
             }
             // skip comments
             if (currentChar === '/' && path.charAt(position + 1) === '*') {
@@ -184,6 +230,77 @@ const parser = (() => {
                 position += 2;
                 return create('operator', '~>');
             }
+            if (currentChar === ':' && path.charAt(position + 1) === ':') {
+                // :: association assignment
+                position += 2;
+                return create('operator', '::');
+            }
+            if (currentChar === '<' && path.charAt(position + 1) === '~') {
+                // <~  chain / change function, opposite done in ast_optimize
+                position += 2;
+                return create('operator', '<~');
+            }
+            if (currentChar === '~' && path.charAt(position + 1) === 'X') {
+                // ~X  deletion function
+                position += 2;
+                return create('operator', '~X');
+            }
+            if (currentChar === '|' && path.charAt(position + 1) === '|') {
+                // ||  chain function
+                position += 2;
+                return create('operator', '||');
+            }
+            if (currentChar === '?' && path.charAt(position + 1) === '{') {
+                // ?{  switch open tag
+                position += 2;
+                return create('operator', '?{');
+            }
+            if (currentChar === '}' && path.charAt(position + 1) === '?') {
+                // }?  switch close tag
+                position += 2;
+                return create('operator', '}?');
+            }
+            if (currentChar === '=' && path.charAt(position + 1) === '>') {
+                // =>  switch <case> => <case body>
+                position += 2;
+                return create('operator', '=>');
+            }
+            if (currentChar === '#' && ( path.charAt(position + 1) === "'" || path.charAt(position + 1) === '"' ||path.charAt(position + 1) === "`" )) {
+                // #` association ref function
+                position += 1;
+                return create('operator', "#'");
+            }
+            if (currentChar === '#' && path.charAt(position+1) !== "" &&  /[a-z]/.exec(path.charAt(position+1) !== null) ) {
+                // # erlang function
+                var e = position + 1;
+                var ech;
+                for (; ;) {
+                    ech = path.charAt(e);
+                    if (e === length || ' \t\n\r\v'.indexOf(ech) > -1 ||  ( operators.hasOwnProperty(ech) && ech !== ":")) {
+                        var ename = path.substring(position, e);
+                        position = e;
+                        return create('variable', ename);
+                    } else {
+                        e++;
+                    }
+                }
+            }
+            // TODO atoms is impossible to implement because of {"payload":false}
+            // if (currentChar === ':' && path.charAt(position+1) !== "" &&  Boolean(/[a-z]/.exec(path.charAt(position+1))) ) {
+            //     // atom expression
+            //     var x = position + 1;
+            //     var ach;
+            //     for (; ;) {
+            //         ach = path.charAt(x);
+            //         if (x === length || ' \t\n\r\v'.indexOf(ach) > -1 || operators.hasOwnProperty(ach)) {
+            //             var aname = path.substring(position + 1, x);
+            //             position = x;
+            //             return create('atom', aname);
+            //         } else {
+            //             x++;
+            //         }
+            //     }
+            // }
             // test for single char operators
             if (operators.hasOwnProperty(currentChar)) {
                 position++;
@@ -266,7 +383,7 @@ const parser = (() => {
                 if (end !== -1) {
                     name = path.substring(position, end);
                     position = end + 1;
-                    return create('name', name);
+                    return create('name', name, {mode: 'backtick'});
                 }
                 position = length;
                 throw {
@@ -289,8 +406,26 @@ const parser = (() => {
                     } else {
                         name = path.substring(position, i);
                         position = i;
+                        if (path.charAt(i) === ':' && path.charAt(i+1) === ':' ) {
+                            // process so-called variable for eja libs ie. "system::date()"
+                            var i2 = i + 2;
+                            var ch2;
+                            var name2 = "";
+                            for (; ;) {
+                                ch2 = path.charAt(i2);
+                                if (i2 === length || ' \t\n\r\v'.indexOf(ch2) > -1 || operators.hasOwnProperty(ch2)) {
+                                    name2 = path.substring(i + 2, i2);
+                                    position = i2;
+                                    break;
+                                } else {
+                                    i2++;
+                                }
+                            }
+                            return create('name', name + "::" + name2, {mode: 'lib'});
+                        }
                         switch (name) {
                             case 'or':
+                            case '||':
                             case 'in':
                             case 'and':
                                 return create('operator', name);
@@ -422,6 +557,7 @@ const parser = (() => {
             var symbol;
             switch (type) {
                 case 'name':
+                case 'atom':
                 case 'variable':
                     symbol = symbol_table["(name)"];
                     break;
@@ -436,6 +572,7 @@ const parser = (() => {
                         });
                     }
                     break;
+                case 'comment':
                 case 'string':
                 case 'number':
                 case 'value':
@@ -458,6 +595,8 @@ const parser = (() => {
             node = Object.create(symbol);
             node.value = value;
             node.type = type;
+            // some nodes using "mode" for classification
+            if (next_token.mode) { node.mode = next_token.mode; }
             node.position = next_token.position;
             return node;
         };
@@ -519,7 +658,21 @@ const parser = (() => {
             return s;
         };
 
+        // match postfix operators
+        // <expression> <operator>
+        var suffix = function (id, bp, led) {
+            var bindingPower = bp || operators[id];
+            var s = symbol(id, bindingPower);
+            s.led = led || function (left) {
+                this.expression = left;
+                this.type = "binary";
+                return this;
+            };
+            return s;
+        };
+
         terminal("(end)");
+        terminal("(atom)");
         terminal("(name)");
         terminal("(literal)");
         terminal("(regex)");
@@ -550,7 +703,14 @@ const parser = (() => {
         terminal("or"); //
         terminal("in"); //
         prefix("-"); // unary numeric negation
-        infix("~>"); // function application
+        infix("~>"); // function application / path setup
+        // prefix(":"); // tuple
+        symbol("?{"); // switch open tag
+        symbol("}?"); // switch close tag
+        symbol("=>"); // sign for switch
+        infix("||"); // JS undefined || ...
+        infix("<~"); // path setup
+        suffix("~X"); // path deletion
 
         infixr("(error)", 10, function (left) {
             this.lhs = left;
@@ -595,47 +755,49 @@ const parser = (() => {
             }
             advance(")", true);
             // if the name of the function is 'function' or λ, then this is function definition (lambda function)
-            if (left.type === 'name' && (left.value === 'function' || left.value === '\u03BB')) {
-                // all of the args must be VARIABLE tokens
-                this.arguments.forEach(function (arg, index) {
-                    if (arg.type !== 'variable') {
-                        return handleError({
-                            code: "S0208",
-                            stack: (new Error()).stack,
-                            position: arg.position,
-                            token: arg.value,
-                            value: index + 1
-                        });
-                    }
-                });
-                this.type = 'lambda';
-                // is the next token a '<' - if so, parse the function signature
-                if (node.id === '<') {
-                    var sigPos = node.position;
-                    var depth = 1;
-                    var sig = '<';
-                    while (depth > 0 && node.id !== '{' && node.id !== '(end)') {
-                        var tok = advance();
-                        if (tok.id === '>') {
-                            depth--;
-                        } else if (tok.id === '<') {
-                            depth++;
+            if (node.id === "{") { // if using a function call such as "system::date()" no need to form an function declaration
+                if (left.type === 'name' && ((left.value === 'function' || left.value === '\u03BB' ) || left.mode === 'lib' ) ) {
+                    // all of the args must be VARIABLE tokens
+                    this.arguments.forEach(function (arg, index) {
+                        if (arg.type !== 'variable' && left.mode !== 'lib') {
+                            return handleError({
+                                code: "S0208",
+                                stack: (new Error()).stack,
+                                position: arg.position,
+                                token: arg.value,
+                                value: index + 1
+                            });
                         }
-                        sig += tok.value;
+                    });
+                    this.type = 'lambda';
+                    // is the next token a '<' - if so, parse the function signature
+                    if (node.id === '<') {
+                        var sigPos = node.position;
+                        var depth = 1;
+                        var sig = '<';
+                        while (depth > 0 && node.id !== '{' && node.id !== '(end)') {
+                            var tok = advance();
+                            if (tok.id === '>') {
+                                depth--;
+                            } else if (tok.id === '<') {
+                                depth++;
+                            }
+                            sig += tok.value;
+                        }
+                        advance('>');
+                        try {
+                            this.signature = parseSignature(sig);
+                        } catch (err) {
+                            // insert the position into this error
+                            err.position = sigPos + err.offset;
+                            return handleError(err);
+                        }
                     }
-                    advance('>');
-                    try {
-                        this.signature = parseSignature(sig);
-                    } catch (err) {
-                        // insert the position into this error
-                        err.position = sigPos + err.offset;
-                        return handleError(err);
-                    }
+                    // parse the function body
+                    advance('{');
+                    this.body = expression(0);
+                    advance('}');
                 }
-                // parse the function body
-                advance('{');
-                this.body = expression(0);
-                advance('}');
             }
             return this;
         });
@@ -644,15 +806,64 @@ const parser = (() => {
         prefix("(", function () {
             var expressions = [];
             while (node.id !== ")") {
-                expressions.push(expression(0));
-                if (node.id !== ";") {
+                var expr = expression(0);
+                expressions.push(expr);
+                if (node.id !== ";" && expr.type !== "comment") {
                     break;
                 }
-                advance(";");
+                if (expr.type !== "comment") {advance(";");}
             }
             advance(")", true);
             this.type = 'block';
             this.expressions = expressions;
+            return this;
+        });
+
+        // questionmark curly parenthesis - switch block expression
+        prefix("?{", function () {
+            var expressions = [];
+            while (node.id !== "}?") {
+                var expr = expression(symbol_table['?'] + 1);
+
+                if (node.id !== "?" && node.id !== "=>") {
+                    break;
+                }
+                if (node.id === "?") {
+                    expressions.push({value: expr});
+                    advance("?");
+                    advance(";");
+                } else if (node.id === "=>") {
+                    advance("=>");
+                    var then = expression(0);
+                    expressions.push({expr, then, next:  node.id === "," ? "continue" : undefined});
+                    if (node.id !== ";" && node.id !== ",") {
+                        break;
+                    }
+                    advance(node.id);
+                }
+            }
+            advance("}?", true);
+            this.type = 'switch';
+            this.expressions = expressions;
+            return this;
+        });
+
+        // association reference
+        prefix("#'");
+
+        // association assign
+        infixr("::", operators['::'], function (left) {
+            if (left.type !== 'string' && left.type !== 'name') {
+                return handleError({
+                    code: "S0212",
+                    stack: (new Error()).stack,
+                    position: left.position,
+                    token: left.value
+                });
+            }
+            this.lhs = left;
+            this.rhs = expression(operators['::'] - 1); // subtract 1 from bindingPower for right associative operators
+            this.type = "binary";
             return this;
         });
 
@@ -678,6 +889,8 @@ const parser = (() => {
             }
             advance("]", true);
             this.expressions = a;
+            // TODO tuple can't be formed with :[...] due to symbol nature of ":"
+            // this.atom = left;
             this.type = "unary";
             return this;
         });
@@ -849,6 +1062,7 @@ const parser = (() => {
         // following this, nodes containing '.' and '[' should be eliminated from the AST.
         var ast_optimize = function (expr) {
             var result;
+            // console.log("ast_optimize: ", expr);
             switch (expr.type) {
                 case 'binary':
                     switch (expr.value) {
@@ -968,6 +1182,29 @@ const parser = (() => {
                             result = {type: 'apply', value: expr.value, position: expr.position};
                             result.lhs = ast_optimize(expr.lhs);
                             result.rhs = ast_optimize(expr.rhs);
+                            if (result.rhs.type === 'path') {
+                                result.type = 'change';
+                            }
+                            break;
+                        // CONSTRUSTION YARD
+                        case '<~':
+                            result = {type: 'change', value: expr.value, position: expr.position};
+                            result.lhs = ast_optimize(expr.lhs);
+                            result.rhs = ast_optimize(expr.rhs);
+                            break;
+                        case '~X':
+                            result = {type: 'change', value: expr.value, position: expr.position};
+                            result.expression = ast_optimize(expr.expression);
+                            break;
+                        case '::':
+                            result = {type: 'bind', value: expr.value, position: expr.position};
+                            var nlhs = ast_optimize(expr.lhs);
+                            if (nlhs.steps.length === 1 && nlhs.steps[0].mode === "backtick") {
+                                result.lhs = {type: 'variable', value: nlhs.steps[0].value};
+                            } else {
+                                result.lhs = nlhs;
+                            }
+                            result.rhs = ast_optimize(expr.rhs);
                             break;
                         default:
                             result = {type: expr.type, value: expr.value, position: expr.position};
@@ -982,6 +1219,10 @@ const parser = (() => {
                         result.expressions = expr.expressions.map(function (item) {
                             return ast_optimize(item);
                         });
+                    } else if (expr.value === "#'") {
+                        // array constructor - process each item
+                        result.type = 'variable';
+                        result.value = expr.expression.value;
                     } else if (expr.value === '{') {
                         // object constructor - process each pair
                         result.lhs = expr.lhs.map(function (pair) {
@@ -1003,7 +1244,14 @@ const parser = (() => {
                     result.arguments = expr.arguments.map(function (arg) {
                         return ast_optimize(arg);
                     });
-                    result.procedure = ast_optimize(expr.procedure);
+                    var nprocedure = ast_optimize(expr.procedure);
+                    if (expr.procedure.mode === 'lib') {
+                        result.procedure = expr.procedure;
+                        result.procedure.type = 'variable';
+                    } else {
+                        result.procedure = nprocedure;
+                    }
+                    // result.procedure = ast_optimize(expr.procedure);
                     break;
                 case 'lambda':
                     result = {
@@ -1012,6 +1260,9 @@ const parser = (() => {
                         signature: expr.signature,
                         position: expr.position
                     };
+                    if (expr.procedure.mode === 'lib'){
+                        result.mode = 'lib';
+                    }
                     var body = ast_optimize(expr.body);
                     result.body = tail_call_optimize(body);
                     break;
@@ -1057,6 +1308,9 @@ const parser = (() => {
                 case 'descendant':
                 case 'variable':
                 case 'regex':
+                case 'atom':
+                case 'switch':
+                case 'comment':
                     result = expr;
                     break;
                 case 'operator':
@@ -1126,6 +1380,7 @@ const parser = (() => {
             expr.errors = errors;
         }
 
+        // console.log("AST: ", expr);
         return expr;
     };
 
