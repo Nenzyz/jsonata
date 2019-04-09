@@ -39,11 +39,13 @@ const parser = (() => {
         ':=': 10,
         '!=': 40,
         '<=': 40,
+        '=<': 40,
         '>=': 40,
         '~>': 40,
         '=>': 80,
         '<~': 40,
         '~X': 40,
+        '~=': 40,
         'and': 30,
         '||': 30,
         '#\'': 40,
@@ -220,6 +222,11 @@ const parser = (() => {
                 position += 2;
                 return create('operator', '<=');
             }
+            if (currentChar === '=' && path.charAt(position + 1) === '<') {
+                // <=
+                position += 2;
+                return create('operator', '<=');
+            }
             if (currentChar === '*' && path.charAt(position + 1) === '*') {
                 // **  descendant wildcard
                 position += 2;
@@ -301,6 +308,11 @@ const parser = (() => {
             //         }
             //     }
             // }
+            if (currentChar === '~' && path.charAt(position + 1) === '=') {
+                // ~= match function call
+                position += 2;
+                return create('operator', '~=');
+            }
             // test for single char operators
             if (operators.hasOwnProperty(currentChar)) {
                 position++;
@@ -383,7 +395,7 @@ const parser = (() => {
                 if (end !== -1) {
                     name = path.substring(position, end);
                     position = end + 1;
-                    return create('name', name, {mode: 'backtick'});
+                    return create('name', name);
                 }
                 position = length;
                 throw {
@@ -711,6 +723,7 @@ const parser = (() => {
         infix("||"); // JS undefined || ...
         infix("<~"); // path setup
         suffix("~X"); // path deletion
+        infix("~="); // match function
 
         infixr("(error)", 10, function (left) {
             this.lhs = left;
@@ -756,7 +769,7 @@ const parser = (() => {
             advance(")", true);
             // if the name of the function is 'function' or λ, then this is function definition (lambda function)
             if (node.id === "{") { // if using a function call such as "system::date()" no need to form an function declaration
-                if (left.type === 'name' && ((left.value === 'function' || left.value === '\u03BB' ) || left.mode === 'lib' ) ) {
+                if (left.type === 'name' && ((left.value === 'function' || left.value === 'fun' ||left.value === '\u03BB' || left.value === '\u0192' ) || left.mode === 'lib' ) ) {
                     // all of the args must be VARIABLE tokens
                     this.arguments.forEach(function (arg, index) {
                         if (arg.type !== 'variable' && left.mode !== 'lib') {
@@ -795,8 +808,17 @@ const parser = (() => {
                     }
                     // parse the function body
                     advance('{');
-                    this.body = expression(0);
+                    var expressions = [];
+                    while (node.id !== "}") {
+                        var n = expression(0);
+                        expressions.push(n);
+                        if (node.id !== ";") {
+                            break;
+                        }
+                        advance(";");
+                    }
                     advance('}');
+                    this.body = { type: 'block', expressions: expressions };
                 }
             }
             return this;
@@ -1180,7 +1202,7 @@ const parser = (() => {
                             result = {type: 'apply', value: expr.value, position: expr.position};
                             result.lhs = ast_optimize(expr.lhs);
                             result.rhs = ast_optimize(expr.rhs);
-                            if (result.rhs.type === 'path') {
+                            if (result.rhs.type === 'path' || ( result.rhs.type === 'variable' && result.rhs.value === '$' )) {
                                 result.type = 'change';
                             }
                             break;
@@ -1219,8 +1241,12 @@ const parser = (() => {
                         });
                     } else if (expr.value === "#'") {
                         // array constructor - process each item
-                        result.type = 'variable';
-                        result.value = expr.expression.value;
+                        console.log("expr ", expr);
+                        delete expr.rhs;
+                        expr.expression.mode = "backtick";
+                        result = ast_optimize(expr.expression);
+                        // result.type = 'variable';
+                        // result.value = expr.expression.value;
                     } else if (expr.value === '{') {
                         // object constructor - process each pair
                         result.lhs = expr.lhs.map(function (pair) {
@@ -1260,6 +1286,7 @@ const parser = (() => {
                     };
                     if (expr.procedure.mode === 'lib'){
                         result.mode = 'lib';
+                        result.value = expr.procedure.value;
                     }
                     var body = ast_optimize(expr.body);
                     result.body = tail_call_optimize(body);
