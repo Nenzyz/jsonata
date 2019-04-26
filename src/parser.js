@@ -1243,8 +1243,8 @@ const parser = (() => {
                         // array constructor - process each item
                         console.log("expr ", expr);
                         delete expr.rhs;
-                        expr.expression.mode = "backtick";
                         result = ast_optimize(expr.expression);
+                        result.steps[0].mode = "backtick";
                         // result.type = 'variable';
                         // result.value = expr.expression.value;
                     } else if (expr.value === '{') {

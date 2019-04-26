@@ -47,6 +47,11 @@ var jsonata = (function() {
      */
     function* evaluate(expr, input, environment) {
         var result;
+        if (grandResult === undefined) {
+            var grandResult = [];
+        } else {
+            grandResult = [];
+        }
 
         var entryCallback = environment.lookup('__evaluate_entry');
         if(entryCallback) {
@@ -110,6 +115,10 @@ var jsonata = (function() {
             case 'transform':
                 result = evaluateTransformExpression(expr, input, environment);
                 break;
+            case 'change':
+                result = yield * evaluateChange(expr, input, environment);
+                input = result;
+                break;
         }
 
         if(environment.async &&
@@ -150,6 +159,69 @@ var jsonata = (function() {
         }
 
         return result;
+    }
+
+    /**
+     * Evaluate change path expression against input data
+     * @param {Object} expr - JSONata expression
+     * @param {Object} input - Input data to evaluate against
+     * @param {Object} environment - Environment
+     * @returns {*} Evaluated input data
+     */
+    function* evaluateChange(expr, input, environment) {
+        
+        var parse = function(el) {
+            if (el.type !== undefined && el.type === "path") {
+                return el.steps.map(parse).join(".");
+            }
+
+            var output = el.value;
+            if (el.value !== undefined && el.value === "$") {
+                output = "input";
+            }
+
+            if (el.predicate !== undefined && el.predicate[0] !== undefined) {
+                output = output + "[" + el.predicate[0].value + "]";
+            }
+
+            var rest = "";
+            if (el.steps !== undefined) {
+                rest = el.steps.map(parse).join(".");
+            }
+
+            if (rest !== "") {
+                return output + "." + rest;
+            }
+
+            return output;
+        };
+
+        var path;
+        var value;
+        if (expr.value === "~X") {
+            path = expr.expression;
+        } else if (expr.value === "<~") {
+            path = expr.lhs;
+            value = expr.rhs;
+        } else if (expr.value === "~>") {
+            path = expr.rhs;
+            value = expr.lhs;
+        } else {
+            console.error("Wrong value: ", expr.value);
+        }
+
+        var parsed_path = parse(path);
+        parsed_path = parsed_path.indexOf("input") !== 0 ? "input." + parsed_path : parsed_path ;
+        var result;
+        if (expr.value === "~X") {
+            result = "delete " + parsed_path;
+        } else {
+            var value_value = yield * evaluate(value, input, environment);
+            result = parsed_path + " = " + JSON.stringify(value_value);
+        }
+        eval(result);
+        
+        return input;
     }
 
     /**
@@ -356,6 +428,9 @@ var jsonata = (function() {
                     break;
                 case 'in':
                     result = evaluateIncludesExpression(lhs, rhs);
+                    break;
+                case '||':
+                    result = lhs || rhs;
                     break;
             }
         } catch(err) {
