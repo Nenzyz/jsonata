@@ -1219,8 +1219,10 @@ const parser = (() => {
                         case '::':
                             result = {type: 'bind', value: expr.value, position: expr.position};
                             var nlhs = ast_optimize(expr.lhs);
-                            if (nlhs.steps.length === 1 && nlhs.steps[0].mode === "backtick") {
+                            if (nlhs.type === 'path' && nlhs.steps !== undefined && nlhs.steps.length === 1) {
                                 result.lhs = {type: 'variable', value: nlhs.steps[0].value};
+                            } else if (nlhs.type === 'string') {
+                                result.lhs = {type: 'variable', value: nlhs.value};
                             } else {
                                 result.lhs = nlhs;
                             }
@@ -1245,8 +1247,8 @@ const parser = (() => {
                         delete expr.rhs;
                         result = ast_optimize(expr.expression);
                         result.steps[0].mode = "backtick";
-                        // result.type = 'variable';
-                        // result.value = expr.expression.value;
+                        result.type = 'variable';
+                        result.value = expr.expression.value;
                     } else if (expr.value === '{') {
                         // object constructor - process each pair
                         result.lhs = expr.lhs.map(function (pair) {
@@ -1284,12 +1286,15 @@ const parser = (() => {
                         signature: expr.signature,
                         position: expr.position
                     };
-                    if (expr.procedure.mode === 'lib'){
+                    if (expr.procedure.mode === undefined || expr.procedure.mode !== 'lib') {
+                        var body = ast_optimize(expr.body);
+                        result.body = tail_call_optimize(body);
+                    } else {
                         result.mode = 'lib';
-                        result.value = expr.procedure.value;
+                        // result.value = expr.procedure.value;
+                        result = { type: 'bind', value: ":=", rhs: expr, lhs: { type: 'variable', value: expr.procedure.value } };
+                        result.rhs.body = tail_call_optimize(ast_optimize(result.rhs.body));
                     }
-                    var body = ast_optimize(expr.body);
-                    result.body = tail_call_optimize(body);
                     break;
                 case 'condition':
                     result = {type: expr.type, position: expr.position};
