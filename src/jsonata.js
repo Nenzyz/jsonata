@@ -181,27 +181,33 @@ var jsonata = (function() {
         var loop;
         if (expr.expressions[0].value !== undefined) {
             var sample_result = yield * evaluate(expr.expressions[0].value, input, environment);
-            expr.expressions.slice(1).map(function(i) {
+            function * proc_sample(i) {
                 if ( !found || i.next !== undefined) {
-                    var bool_result = evaluate(i.expr, input, environment).next().value;
+                    var bool_result = yield * evaluate(i.expr, input, environment);
                     if (bool_result === sample_result) {
-                        loop = evaluate(i.then, input, environment).next().value;
+                        loop = yield * evaluate(i.then, input, environment);
                         found = i.next === "continue" ? false : true;
                     }
                 }
                 return i;
-            })
+            }
+            for (var item of expr.expressions.slice(1)) {
+                yield * proc_sample(item);
+            }
         } else {
-            expr.expressions.map(function(i) {
+            function * proc(i) {
                 if ( !found || i.next !== undefined) {
-                    var bool_result = evaluate(i.expr, input, environment).next().value;
+                    var bool_result = yield * evaluate(i.expr, input, environment);
                     if (bool_result) {
-                        loop = evaluate(i.then, input, environment).next().value;
+                        loop = yield * evaluate(i.then, input, environment);
                         found = i.next === "continue" ? false : true;
                     }
                 }
                 return i;
-            })
+            }
+            for (var item of expr.expressions) {
+                yield * proc(item);
+            }
         }
         return loop;
     }
