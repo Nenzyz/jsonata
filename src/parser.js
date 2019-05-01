@@ -2,6 +2,10 @@
  * © Copyright IBM Corp. 2016, 2018 All Rights Reserved
  *   Project name: JSONata
  *   This project is licensed under the MIT License, see LICENSE
+ * 
+ * 
+ * 
+ * More about here: http://crockford.com/javascript/tdop/tdop.html
  */
 
 var parseSignature = require('./signature');
@@ -1206,7 +1210,7 @@ const parser = (() => {
                                 result.type = 'change';
                             }
                             break;
-                        // CONSTRUSTION YARD
+                        // CONSTRUCTION YARD
                         case '<~':
                             result = {type: 'change', value: expr.value, position: expr.position};
                             result.lhs = ast_optimize(expr.lhs);
@@ -1226,7 +1230,9 @@ const parser = (() => {
                             } else {
                                 result.lhs = nlhs;
                             }
-                            result.rhs = ast_optimize(expr.rhs);
+                            var thunk = {type: 'lambda', thunk: true, arguments: [], position: expr.position};
+                            thunk.body = ast_optimize(expr.rhs);
+                            result.rhs = thunk;
                             break;
                         default:
                             result = {type: expr.type, value: expr.value, position: expr.position};
@@ -1242,13 +1248,17 @@ const parser = (() => {
                             return ast_optimize(item);
                         });
                     } else if (expr.value === "#'") {
-                        // array constructor - process each item
-                        console.log("expr ", expr);
-                        delete expr.rhs;
                         result = ast_optimize(expr.expression);
-                        result.steps[0].mode = "backtick";
-                        result.type = 'variable';
-                        result.value = expr.expression.value;
+                        
+                        var nprocedure = {type: 'function', name: expr.name, value: "(", position: expr.position, arguments: []};
+                        nprocedure.procedure = result.steps[0];
+                        nprocedure.procedure.type = "variable";
+
+                        if (nprocedure.procedure.predicate !== undefined) {
+                            nprocedure.predicate = nprocedure.procedure.predicate;
+                            delete nprocedure.procedure.predicate;
+                        }
+                        result.steps[0] = nprocedure;
                     } else if (expr.value === '{') {
                         // object constructor - process each pair
                         result.lhs = expr.lhs.map(function (pair) {

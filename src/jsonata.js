@@ -98,7 +98,11 @@ var jsonata = (function() {
                 result = yield * evaluateFunction(expr, input, environment);
                 break;
             case 'variable':
-                result = evaluateVariable(expr, input, environment);
+                if (expr.steps === undefined) {
+                    result = evaluateVariable(expr, input, environment);                
+                } else {
+                    result = yield * evaluateFunction(expr, input, environment);
+                }
                 break;
             case 'lambda':
                 result = evaluateLambda(expr, input, environment);
@@ -117,6 +121,10 @@ var jsonata = (function() {
                 break;
             case 'change':
                 result = yield * evaluateChange(expr, input, environment);
+                input = result;
+                break;
+            case 'switch':
+                result = yield * evaluateSwitch(expr, input, environment);
                 input = result;
                 break;
         }
@@ -159,6 +167,43 @@ var jsonata = (function() {
         }
 
         return result;
+    }
+
+    /**
+     * Evaluate switch input data
+     * @param {Object} expr - JSONata expression
+     * @param {Object} input - Input data to evaluate against
+     * @param {Object} environment - Environment
+     * @returns {*} Evaluated input data
+     */
+    function* evaluateSwitch(expr, input, environment) {
+        var found = false;
+        var loop;
+        if (expr.expressions[0].value !== undefined) {
+            var sample_result = yield * evaluate(expr.expressions[0].value, input, environment);
+            expr.expressions.slice(1).map(function(i) {
+                if ( !found || i.next !== undefined) {
+                    var bool_result = evaluate(i.expr, input, environment).next().value;
+                    if (bool_result === sample_result) {
+                        loop = evaluate(i.then, input, environment).next().value;
+                        found = i.next === "continue" ? false : true;
+                    }
+                }
+                return i;
+            })
+        } else {
+            expr.expressions.map(function(i) {
+                if ( !found || i.next !== undefined) {
+                    var bool_result = evaluate(i.expr, input, environment).next().value;
+                    if (bool_result) {
+                        loop = evaluate(i.then, input, environment).next().value;
+                        found = i.next === "continue" ? false : true;
+                    }
+                }
+                return i;
+            })
+        }
+        return loop;
     }
 
     /**
