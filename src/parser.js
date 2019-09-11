@@ -1203,22 +1203,75 @@ const parser = (() => {
                             result.rhs = ast_optimize(expr.rhs);
                             break;
                         case '~>':
-                            result = {type: 'apply', value: expr.value, position: expr.position};
+                            result = { type: 'apply', value: expr.value, position: expr.position };
                             result.lhs = ast_optimize(expr.lhs);
                             result.rhs = ast_optimize(expr.rhs);
-                            if (result.rhs.type === 'path' || ( result.rhs.type === 'variable' && result.rhs.value === '$' )) {
-                                result.type = 'change';
+
+                            if (result.rhs.type === 'path' || (result.rhs.type === 'variable' && result.rhs.value === '$')) {
+                                if (result.rhs.steps) {
+                                    result = ast_optimize(expr.rhs);
+                                    // var last_step = result.steps.pop();
+                                    var last_step;
+                                    if (result.steps[result.steps.length - 1].predicate) {
+                                        last_step = {position: 47, type: "variable", value: ""};
+                                    } else {
+                                        last_step = result.steps.pop();
+                                    }
+                                    result.steps.map(function(el){
+                                        el.create_missing = true;
+                                    });
+                                    last_step.parsed_parent = parse_array(result).flat();
+                                    var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, rhs: last_step, lhs: ast_optimize(expr.lhs) }] };
+                                    result.steps.push(change_block);
+                                } else {
+                                    result.type = 'change';
+                                }
                             }
                             break;
                         // CONSTRUCTION YARD
                         case '<~':
-                            result = {type: 'change', value: expr.value, position: expr.position};
-                            result.lhs = ast_optimize(expr.lhs);
-                            result.rhs = ast_optimize(expr.rhs);
+                            // The following reformat <expression> <~ <value> into
+                            //   <expression before last path>.( <last path> <~ <value> )
+                            // This is done due to complexity of change and for filter functionality
+                            result = ast_optimize(expr.lhs);
+                            if (result.steps) {
+                                // var last_step = result.steps.pop();
+                                var last_step;
+                                if (result.steps[result.steps.length - 1].predicate) {
+                                    last_step = {position: 47, type: "variable", value: ""};
+                                } else {
+                                    last_step = result.steps.pop();
+                                }
+                                result.steps.map(function(el){
+                                    el.create_missing = true;
+                                });
+                                last_step.parsed_parent = parse_array(result).flat();
+                                var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, lhs: last_step, rhs: ast_optimize(expr.rhs) }] };
+                                result.steps.push(change_block);
+                            } else {
+                                result = {type: 'change', value: expr.value, postion: expr.position};
+                                result.lhs = ast_optimize(expr.lhs);
+                                result.rhs = ast_optimize(expr.rhs);
+                            }
                             break;
                         case '~X':
-                            result = {type: 'change', value: expr.value, position: expr.position};
-                            result.expression = ast_optimize(expr.expression);
+                            result = ast_optimize(expr.expression);
+                            if (result.steps) {
+                                var last_step;
+                                if (result.steps[result.steps.length - 1].predicate) {
+                                    last_step = {position: 47, type: "variable", value: ""};
+                                } else {
+                                    last_step = result.steps.pop();
+                                }
+                                result.steps.map(function(el){
+                                    el.deletion_operation = true;
+                                });
+                                var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, expression: last_step }] };
+                                result.steps.push(change_block);
+                            } else {
+                                result = {type: 'change', value: expr.value, postion: expr.position};
+                                result.expression = ast_optimize(expr.expression);
+                            }
                             break;
                         case '::':
                             result = {type: 'bind', value: expr.value, position: expr.position};
@@ -1449,6 +1502,33 @@ const parser = (() => {
 
         // console.log("AST: ", expr);
         return expr;
+    };
+
+    var parse_array = function (el) {
+        if (el.type !== undefined && el.type === "path") {
+            return el.steps.map(parse_array);
+        }
+
+        var output = [el.value];
+        if (el.value !== undefined && el.value === "$") {
+            output = ["input"];
+        }
+
+        if (el.predicate !== undefined && el.predicate[0] !== undefined) {
+            // output = output + "[" + el.predicate[0].value + "]";
+            output.push(el.predicate[0].value);
+        }
+
+        var rest = [];
+        if (el.steps !== undefined) {
+            rest = el.steps.map(parse_array);
+        }
+
+        if (rest !== []) {
+            return output.concat(rest);
+        }
+
+        return output;
     };
 
     return parser;

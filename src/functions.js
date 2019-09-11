@@ -1578,14 +1578,18 @@ const functions = (() => {
      * @param {*} arg - the objects to merge
      * @returns {*} - the object
      */
-    function merge(arg) {
+    function merge(arg, argA, opts) {
         // undefined inputs always return undefined
         if (typeof arg === 'undefined') {
             return undefined;
         }
 
         var result = {};
-
+        if (argA === undefined) argA = {};
+        if (!Array.isArray(arg)) {
+            arg = [arg];
+            arg = Array.concat(arg, argA);
+        }
         arg.forEach(function (obj) {
             for (var prop in obj) {
                 result[prop] = obj[prop];

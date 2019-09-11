@@ -120,8 +120,8 @@ var jsonata = (function() {
                 result = evaluateTransformExpression(expr, input, environment);
                 break;
             case 'change':
-                result = yield * evaluateChange(expr, input, environment);
-                input = result;
+                input = yield * evaluateChange(expr, input, environment);
+                result = input;
                 break;
             case 'switch':
                 result = yield * evaluateSwitch(expr, input, environment);
@@ -264,16 +264,66 @@ var jsonata = (function() {
         var parsed_path = parse(path);
         parsed_path = parsed_path.indexOf("input") !== 0 ? "input." + parsed_path : parsed_path ;
         var result;
+        var value_value;
+        // TODO: manipulate-filter-last like this '$$.documents[id = 1] ~X' or '$$.documents[id = 1] <~ {}' dont work
         if (expr.value === "~X") {
-            result = "delete " + parsed_path;
+            if (parsed_path == "input.") {
+                input = undefined;
+            } else {
+                var applicator = "delete " + parsed_path;
+                console.log("eval:", applicator);
+                eval(applicator);    
+            }
         } else {
-            var value_value = yield * evaluate(value, input, environment);
-            result = parsed_path + " = " + JSON.stringify(value_value);
+            // global change like $$ <~ <value> doesn't work since it replaces and loses original object
+            //   instead it should replace each of its keys, this works on a global level
+
+            // create missing for '$$.documents[id=1].name <~ <value>' should work only for already exsting filtered items, otherwise don't know how to create those
+
+            value_value = yield * evaluate(value, input, environment);
+            if ( parsed_path === "input" ) {
+                var v_keys = Object.keys(value_value);
+                var i_keys = Object.keys(input);
+
+                i_keys.forEach(function(el){
+                    if (value_value[el] === undefined) delete input[el];
+                    if (value_value[el] != input[el]) input[el] = value_value[el];
+                });
+                v_keys.forEach(function(el){
+                    if (input[el] === undefined) input[el] = value_value[el];
+                });
+            } else {
+                var parsed_path_array = value.parsed_parent || [];
+                if (parsed_path_array.length > 0) create_missing(parsed_path_array);
+
+                var applicator = parsed_path + " = " + JSON.stringify(value_value);
+                console.log("eval:", applicator);
+                eval(applicator);
+            }
         }
-        eval(result);
-        
         return input;
     }
+
+    function create_missing(obj, list) {
+        console.log("create missing:", list);
+
+        if (obj == undefined) obj = {};
+        var el = list[0] || "";
+        if (typeof el != "number" && obj[el] === undefined) {
+            obj[el] = {};
+            if (list.length > 1 && Array.isArray(list)) {
+                list.shift();
+                obj[el] = create_missing(obj[el], list);
+            }
+        } else if (typeof el == "number" && !Array.isArray(obj)) {
+            obj = [];
+            if (list.length > 1 && Array.isArray(list)) {
+                list.shift();
+                obj[el] = create_missing(obj[el], list);
+            }
+        };
+        return obj;
+    };
 
     /**
      * Evaluate path expression against input data
@@ -302,6 +352,7 @@ var jsonata = (function() {
         for(var ii = 0; ii < expr.steps.length; ii++) {
             var step = expr.steps[ii];
 
+            if (step.create_missing) inputSequence[0][step.value] = inputSequence[0][step.value] || {};
             // if the first step is an explicit array constructor, then just evaluate that (i.e. don't iterate over a context array)
             if(ii === 0 && step.consarray) {
                 resultSequence = yield * evaluate(step, inputSequence, environment);
@@ -1342,6 +1393,8 @@ var jsonata = (function() {
             };
         }
 
+        // TODO: change proc input to local input only for association function
+        proc.input = input;
         var evaluatedArgs = [];
         // eager evaluation - evaluate the arguments
         for (var jj = 0; jj < expr.arguments.length; jj++) {
@@ -1954,6 +2007,7 @@ var jsonata = (function() {
         }, '<:n>'));
 
         return {
+            environment: environment,
             evaluate: function (input, bindings, callback) {
                 // throw if the expression compiled with syntax errors
                 if(typeof errors !== 'undefined') {
