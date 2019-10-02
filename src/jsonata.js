@@ -220,6 +220,101 @@ var jsonata = (function() {
      * @returns {*} Evaluated input data
      */
     function* evaluateChange(expr, input, environment) {
+        // console.log(" evaluateChange: ", input);
+        // var walkin = (path, obj) => {
+        //     switch (path) {
+
+        //     }
+        // }
+        // function walk (obj, el) {
+        //     if (obj === undefined || el === undefined) {
+        //         return {object: obj, path: el};
+        //     }
+        //     console.log("  Walk: ", [obj, el]);
+        //     if (el.type !== undefined) {
+        //         var ph1 = {object: obj, path: el};
+        //         console.log(" walk: ", [el.type, el.value]);
+        //         switch(el.type) {
+        //             case "variable":
+        //                 var var_v;
+        //                 if (el.value !== "$") {
+        //                     var_v = environment.lookup(el.value);
+        //                 } else {
+        //                     var_v = input;
+        //                 }
+        //                 if (typeof var_v === "number" && Array.isArray(obj)) {
+        //                     if (var_v < obj.length) {
+        //                         ph1.object = obj[var_v];
+        //                     } else {
+        //                         ph1.object = undefined;
+        //                     }
+        //                 } else if (typeof var_v === "string" && typeof obj === "object") {
+        //                     if (obj.hasOwnProperty(var_v)) {
+        //                         ph1.object = obj[var_v];
+        //                     } else {
+        //                         ph1.object = undefined;
+        //                     }
+        //                 }
+        //                 break;
+        //             case "path":
+        //                 var result = el.steps.reduce(
+        //                     function (_obj, el) { var some = walk(_obj, el); return some; }, 
+        //                     obj
+        //                 );
+        //                 ph1.object = result;
+        //                 break;
+        //             case "name":
+        //                 if (Array.isArray(obj)) {
+        //                     // looking for name but found 'array' at location
+        //                     //  first assign the empty object, then assign a value
+        //                     ph1.object = undefined;
+        //                     break;
+        //                 } else if (typeof obj === "object") {
+        //                     if (obj.hasOwnProperty(el.value)) {
+        //                         ph1.object = obj[el.value];
+        //                     } else {
+        //                         // creating a new object
+        //                         ph1.object = undefined;
+        //                     }
+        //                     break;
+        //                 } else {
+        //                     ph1.object = undefined;
+        //                     break;
+        //                 }
+        //                 break;
+        //             case "number":
+        //                 if (Array.isArray(obj) && el.value < obj.length) {
+        //                     // looking for name but found 'array' at location
+        //                     ph1.object = obj[el.value];
+        //                     break;
+        //                 } else if (Array.isArray(obj) && el.value < obj.length) {
+        //                     ph1.object = undefined;
+        //                 } else if (typeof obj === "object") {
+        //                     // non-array element
+        //                     //  first assign the empty array, then push a value
+        //                     ph1.object = undefined;
+        //                     break;
+        //                 } else {
+        //                     ph1.object = undefined;
+        //                     break;
+        //                 }
+        //                 break;
+        //             default:
+        //                 console.log("      Unknown: ", [obj, el]);
+        //                 break;
+        //         }
+        //         if (el.predicate !== undefined) {
+        //             return el.predicate.reduce(
+        //                 function (_obj, el) { return walk(_obj, el); },
+        //                 ph1.object
+        //             );
+        //         } else {
+        //             return ph1;
+        //         }
+        //     } else {
+        //         return {object: obj, path: el};
+        //     }
+        // }
         
         var parse = function(el) {
             if (el.type !== undefined && el.type === "path") {
@@ -363,6 +458,8 @@ var jsonata = (function() {
                 resultSequence = yield * evaluateStep(step, inputSequence, environment, ii === expr.steps.length - 1);
             }
 
+            // NB: create_missing should be used in order to identify that that path processed is just a walking
+            //   but this was done in another place
             if(typeof resultSequence === 'undefined' || resultSequence.length === 0) {
                 break;
             }
@@ -1850,6 +1947,8 @@ var jsonata = (function() {
     staticFrame.bind('toMillis', defineFunction(datetime.toMillis, '<s-s?:n>'));
     staticFrame.bind('fromMillis', defineFunction(datetime.fromMillis, '<n-s?s?:s>'));
     staticFrame.bind('clone', defineFunction(functionClone, '<(oa)-:o>'));
+    staticFrame.bind('blog', defineFunction(fn.blog, '<s:s>'));
+    staticFrame.bind('slog', defineFunction(fn.slog, '<s:s>'));
 
     /**
      * Error codes
@@ -1991,6 +2090,7 @@ var jsonata = (function() {
             ast = parser(expr, options && options.recover);
             errors = ast.errors;
             delete ast.errors;
+            // console.log("AST", ast);
         } catch(err) {
             // insert error message into structure
             populateMessage(err); // possible side-effects on `err`
@@ -2068,6 +2168,7 @@ var jsonata = (function() {
                     } catch (err) {
                         // insert error message into structure
                         populateMessage(err); // possible side-effects on `err`
+                        // console.error("E:", err);
                         throw err;
                     }
                 }

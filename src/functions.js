@@ -1775,6 +1775,25 @@ const functions = (() => {
         return result;
     }
 
+    /**
+     * Console log analogue
+     *
+     * @param {object} arg - printable string
+     */
+    function* blog(arg) {
+        console.log(arg);
+        return undefined;
+    }
+    /**
+     * Console log analogue
+     *
+     * @param {object} arg - printable string
+     */
+    function* slog(arg) {
+        console.log(arg);
+        return undefined;
+    }
+
     return {
         sum, count, max, min, average,
         string, substring, substringBefore, substringAfter, lowercase, uppercase, length, trim, pad,
@@ -1784,6 +1803,12 @@ const functions = (() => {
         map, zip, filter, foldLeft, sift,
         keys, lookup, append, exists, spread, merge, reverse, each, sort, shuffle,
         base64encode, base64decode
+        , blog, slog 
+        //, dbg_on, dbg_off, trace_on, trace_off, kanren
+        //, mod_date, to_date, date, now, clear_tz, set_tz
+        //, eval, flatten, hash
+        //, is_object, is_number, is_string, is_array, is_boolean, is_date
+        //, cast_boolean, type, t, tuple, atom
     };
 })();
 
