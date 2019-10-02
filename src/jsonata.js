@@ -468,10 +468,8 @@ var jsonata = (function() {
                 }
             }
 
-            if(typeof resultSequence === 'undefined' || resultSequence.length === 0) {
             // NB: create_missing should be used in order to identify that that path processed is just a walking
             //   but this was done in another place
-            if(typeof resultSequence === 'undefined' || resultSequence.length === 0) {
             if (!isTupleStream && (typeof resultSequence === 'undefined' || resultSequence.length === 0)) {
                 break;
             }
