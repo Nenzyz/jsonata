@@ -2042,6 +2042,7 @@ const functions = (() => {
         map, zip, filter, single, foldLeft, sift,
         keys, lookup, append, exists, spread, merge, reverse, each, error, assert, sort, shuffle, distinct,
         base64encode, base64decode,  encodeUrlComponent, encodeUrl, decodeUrlComponent, decodeUrl
+        // NB: TI: erlang specific procedures
         , blog, slog 
         //, dbg_on, dbg_off, trace_on, trace_off, kanren
         //, mod_date, to_date, date, now, clear_tz, set_tz

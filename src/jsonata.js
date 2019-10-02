@@ -362,7 +362,7 @@ var jsonata = (function() {
         parsed_path = parsed_path.indexOf("input") !== 0 ? "input." + parsed_path : parsed_path ;
         var result;
         var value_value;
-        // TODO: manipulate-filter-last like this '$$.documents[id = 1] ~X' or '$$.documents[id = 1] <~ {}' dont work
+        // NB: TI: manipulate-filter-last like this '$$.documents[id = 1] ~X' or '$$.documents[id = 1] <~ {}' dont work
         if (expr.value === "~X") {
             if (parsed_path == "input.") {
                 input = undefined;
@@ -451,6 +451,7 @@ var jsonata = (function() {
         for(var ii = 0; ii < expr.steps.length; ii++) {
             var step = expr.steps[ii];
 
+            // NB: TI: walking by non-existing path and creating it (change functionality)
             if (step.create_missing) inputSequence[0][step.value] = inputSequence[0][step.value] || {};
             if(step.tuple) {
                 isTupleStream = true;
@@ -1662,7 +1663,7 @@ var jsonata = (function() {
             };
         }
 
-        // TODO: change proc input to local input only for association function
+        // NB: TI: change proc input to local input only for association function
         proc.input = input;
         var evaluatedArgs = [];
         if(typeof applyto !== 'undefined') {
