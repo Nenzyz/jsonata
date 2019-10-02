@@ -33,6 +33,7 @@ var jsonata = (function() {
     var isLambda = utils.isLambda;
     var isIterable = utils.isIterable;
     var getFunctionArity = utils.getFunctionArity;
+    var isDeepEqual = utils.isDeepEqual;
 
     // Start of Evaluator code
 
@@ -130,7 +131,7 @@ var jsonata = (function() {
         }
 
         if(environment.async &&
-          (typeof result === 'undefined' || result === null || typeof result.then !== 'function')) {
+            (typeof result === 'undefined' || result === null || typeof result.then !== 'function')) {
             result = Promise.resolve(result);
         }
         if(environment.async && typeof result.then === 'function' && expr.nextFunction && typeof result[expr.nextFunction] === 'function') {
@@ -140,12 +141,13 @@ var jsonata = (function() {
             result = yield result;
         }
 
-
         if (expr.hasOwnProperty('predicate')) {
-            result = yield * applyPredicates(expr.predicate, result, environment);
-
+            for(var ii = 0; ii < expr.predicate.length; ii++) {
+                result = yield * evaluateFilter(expr.predicate[ii].expr, result, environment);
+            }
         }
-        if (expr.hasOwnProperty('group')) {
+
+        if (expr.type !== 'path' && expr.hasOwnProperty('group')) {
             result = yield * evaluateGroupExpression(expr.group, result, environment);
         }
 
@@ -442,35 +444,67 @@ var jsonata = (function() {
         }
 
         var resultSequence;
+        var isTupleStream = false;
+        var tupleBindings = undefined;
 
         // evaluate each step in turn
         for(var ii = 0; ii < expr.steps.length; ii++) {
             var step = expr.steps[ii];
 
             if (step.create_missing) inputSequence[0][step.value] = inputSequence[0][step.value] || {};
+            if(step.tuple) {
+                isTupleStream = true;
+            }
+
             // if the first step is an explicit array constructor, then just evaluate that (i.e. don't iterate over a context array)
             if(ii === 0 && step.consarray) {
                 resultSequence = yield * evaluate(step, inputSequence, environment);
-                if(!Array.isArray(resultSequence)) {
-                    resultSequence = createSequence(resultSequence);
-                }
             } else {
-                resultSequence = yield * evaluateStep(step, inputSequence, environment, ii === expr.steps.length - 1);
+                if(isTupleStream) {
+                    tupleBindings = yield * evaluateTupleStep(step, inputSequence, tupleBindings, environment);
+                } else {
+                    resultSequence = yield * evaluateStep(step, inputSequence, environment, ii === expr.steps.length - 1);
+                }
             }
 
+            if(typeof resultSequence === 'undefined' || resultSequence.length === 0) {
             // NB: create_missing should be used in order to identify that that path processed is just a walking
             //   but this was done in another place
             if(typeof resultSequence === 'undefined' || resultSequence.length === 0) {
+            if (!isTupleStream && (typeof resultSequence === 'undefined' || resultSequence.length === 0)) {
                 break;
             }
-            inputSequence = resultSequence;
+
+            if(typeof step.focus === 'undefined') {
+                inputSequence = resultSequence;
+            }
+
+        }
+
+        if(isTupleStream) {
+            resultSequence = createSequence();
+            for(ii = 0; ii < tupleBindings.length; ii++) {
+                resultSequence.push(tupleBindings[ii]['@']);
+            }
         }
 
         if(expr.keepSingletonArray) {
             resultSequence.keepSingleton = true;
         }
 
+        if (expr.hasOwnProperty('group')) {
+            resultSequence = yield* evaluateGroupExpression(expr.group, isTupleStream ? tupleBindings : resultSequence, environment)
+        }
+
         return resultSequence;
+    }
+
+    function createFrameFromTuple(environment, tuple) {
+        var frame = createFrame(environment);
+        for(const prop in tuple) {
+            frame.bind(prop, tuple[prop]);
+        }
+        return frame;
     }
 
     /**
@@ -482,10 +516,24 @@ var jsonata = (function() {
      * @returns {*} Evaluated input data
      */
     function* evaluateStep(expr, input, environment, lastStep) {
-        var result = createSequence();
+        var result;
+        if(expr.type === 'sort') {
+             result = yield* evaluateSortExpression(expr, input, environment);
+             if(expr.stages) {
+                 result = yield* evaluateStages(expr.stages, result, environment);
+             }
+             return result;
+        }
+
+        result = createSequence();
 
         for(var ii = 0; ii < input.length; ii++) {
             var res = yield * evaluate(expr, input[ii], environment);
+            if(expr.stages) {
+                for(var ss = 0; ss < expr.stages.length; ss++) {
+                    res = yield* evaluateFilter(expr.stages[ss].expr, res, environment);
+                }
+            }
             if(typeof res !== 'undefined') {
                 result.push(res);
             }
@@ -497,7 +545,7 @@ var jsonata = (function() {
         } else {
             // flatten the sequence
             result.forEach(function(res) {
-                if (!Array.isArray(res) || res.cons || res.keepSingleton) {
+                if (!Array.isArray(res) || res.cons) {
                     // it's not an array - just push into the result sequence
                     resultSequence.push(res);
                 } else {
@@ -510,43 +558,91 @@ var jsonata = (function() {
         return resultSequence;
     }
 
-    /**
-     * Apply predicates to input data
-     * @param {Object} predicates - Predicates
-     * @param {Object} input - Input data to apply predicates against
-     * @param {Object} environment - Environment
-     * @returns {*} Result after applying predicates
-     */
-    function* applyPredicates(predicates, input, environment) {
-        var inputSequence = input;
-        // lhs potentially holds an array
-        // we want to iterate over the array, and only keep the items that are
-        // truthy when applied to the predicate.
-        // if the predicate evaluates to an integer, then select that index
-
-        var results = createSequence();
-        for(var ii = 0; ii < predicates.length; ii++) {
-            var predicate = predicates[ii];
-            // if it's not an array, turn it into one
-            // since in XPath >= 2.0 an item is equivalent to a singleton sequence of that item
-            // if input is not an array, make it so
-            if (!Array.isArray(inputSequence)) {
-                inputSequence = createSequence(inputSequence);
+    function* evaluateStages(stages, input, environment) {
+        var result = input;
+        for(var ss = 0; ss < stages.length; ss++) {
+            var stage = stages[ss];
+            switch(stage.type) {
+                case 'filter':
+                    result = yield * evaluateFilter(stage.expr, result, environment);
+                    break;
+                case 'index':
+                    for(var ee = 0; ee < result.length; ee++) {
+                        var tuple = result[ee];
+                        tuple[stage.value] = ee;
+                    }
+                    break;
             }
-            results = createSequence();
-            if (predicate.type === 'number') {
-                var index = Math.floor(predicate.value);  // round it down
-                if (index < 0) {
-                    // count in from end of array
-                    index = inputSequence.length + index;
-                }
-                results = inputSequence[index];
-            } else {
-                results = yield * evaluateFilter(predicate, inputSequence, environment);
-            }
-            inputSequence = results;
         }
-        return results;
+        return result;
+    }
+
+    /**
+     * Evaluate a step within a path
+     * @param {Object} expr - JSONata expression
+     * @param {Object} input - Input data to evaluate against
+     * @param {Object} tupleBindings - The tuple stream
+     * @param {Object} environment - Environment
+     * @returns {*} Evaluated input data
+     */
+    function* evaluateTupleStep(expr, input, tupleBindings, environment) {
+        var result;
+        if(expr.type === 'sort') {
+            if(tupleBindings) {
+                result = yield* evaluateSortExpression(expr, tupleBindings, environment);
+            } else {
+                var sorted = yield* evaluateSortExpression(expr, input, environment);
+                result = createSequence();
+                result.tupleStream = true;
+                for(var ss = 0; ss < sorted.length; ss++) {
+                    var tuple = {'@': sorted[ss]};
+                    tuple[expr.index] = ss;
+                    result.push(tuple);
+                }
+            }
+            if(expr.stages) {
+                result = yield* evaluateStages(expr.stages, result, environment);
+            }
+            return result;
+        }
+
+        result = createSequence();
+        result.tupleStream = true;
+        var stepEnv = environment;
+        if(tupleBindings === undefined) {
+            tupleBindings = [{'@': input}];
+        }
+
+        for(var ee = 0; ee < tupleBindings.length; ee++) {
+            stepEnv = createFrameFromTuple(environment, tupleBindings[ee]);
+            var res = yield* evaluate(expr, tupleBindings[ee]['@'], stepEnv);
+            // res is the binding sequence for the output tuple stream
+            if(typeof res !== 'undefined') {
+                if (!Array.isArray(res)) {
+                    res = [res];
+                }
+                for (var bb = 0; bb < res.length; bb++) {
+                    tuple = {};
+                    Object.assign(tuple, tupleBindings[ee]);
+                    if (expr.focus) {
+                        tuple[expr.focus] = res[bb];
+                        tuple['@'] = input;
+                    } else {
+                        tuple['@'] = res[bb];
+                    }
+                    if(expr.index) {
+                        tuple[expr.index] = bb;
+                    }
+                    result.push(tuple);
+                }
+            }
+        }
+
+        if(expr.stages) {
+            result = yield * evaluateStages(expr.stages, result, environment);
+        }
+
+        return result;
     }
 
     /**
@@ -558,26 +654,54 @@ var jsonata = (function() {
      */
     function* evaluateFilter(predicate, input, environment) {
         var results = createSequence();
-        for(var index = 0; index < input.length; index++) {
-            var item = input[index];
-            var res = yield * evaluate(predicate, item, environment);
-            if (isNumeric(res)) {
-                res = [res];
+        if( input && input.tupleStream) {
+            results.tupleStream = true;
+        }
+        if (!Array.isArray(input)) {
+            input = createSequence(input);
+        }
+        if (predicate.type === 'number') {
+            var index = Math.floor(predicate.value);  // round it down
+            if (index < 0) {
+                // count in from end of array
+                index = input.length + index;
             }
-            if(isArrayOfNumbers(res)) {
-                res.forEach(function(ires) {
-                    // round it down
-                    var ii = Math.floor(ires);
-                    if (ii < 0) {
-                        // count in from end of array
-                        ii = input.length + ii;
-                    }
-                    if (ii === index) {
-                        results.push(item);
-                    }
-                });
-            } else if (fn.boolean(res)) { // truthy
-                results.push(item);
+            var item = input[index];
+            if(typeof item !== 'undefined') {
+                if(Array.isArray(item)) {
+                    results = item;
+                } else {
+                    results.push(item);
+                }
+            }
+        } else {
+            for (index = 0; index < input.length; index++) {
+                var item = input[index];
+                var context = item;
+                var env = environment;
+                if(input.tupleStream) {
+                    context = item['@'];
+                    env = createFrameFromTuple(environment, item);
+                }
+                var res = yield* evaluate(predicate, context, env);
+                if (isNumeric(res)) {
+                    res = [res];
+                }
+                if (isArrayOfNumbers(res)) {
+                    res.forEach(function (ires) {
+                        // round it down
+                        var ii = Math.floor(ires);
+                        if (ii < 0) {
+                            // count in from end of array
+                            ii = input.length + ii;
+                        }
+                        if (ii === index) {
+                            results.push(item);
+                        }
+                    });
+                } else if (fn.boolean(res)) { // truthy
+                    results.push(item);
+                }
             }
         }
         return results;
@@ -608,7 +732,7 @@ var jsonata = (function() {
                 case '=':
                 case '!=':
                     result = evaluateEqualityExpression(lhs, rhs, op);
-                    break
+                    break;
                 case '<':
                 case '<=':
                 case '>':
@@ -876,10 +1000,10 @@ var jsonata = (function() {
 
         switch (op) {
             case '=':
-                result = lhs === rhs;
+                result = isDeepEqual(lhs, rhs);
                 break;
             case '!=':
-                result = (lhs !== rhs);
+                result = !isDeepEqual(lhs, rhs);
                 break;
         }
         return result;
@@ -1036,6 +1160,7 @@ var jsonata = (function() {
     function* evaluateGroupExpression(expr, input, environment) {
         var result = {};
         var groups = {};
+        var reduce = input && input.tupleStream ? true : false;
         // group the input sequence by 'key' expression
         if (!Array.isArray(input)) {
             input = createSequence(input);
@@ -1043,9 +1168,10 @@ var jsonata = (function() {
 
         for(var itemIndex = 0; itemIndex < input.length; itemIndex++) {
             var item = input[itemIndex];
+            var env = reduce ? createFrameFromTuple(environment, item) : environment;
             for(var pairIndex = 0; pairIndex < expr.lhs.length; pairIndex++) {
                 var pair = expr.lhs[pairIndex];
-                var key = yield * evaluate(pair[0], item, environment);
+                var key = yield * evaluate(pair[0], reduce ? item['@'] : item, env);
                 // key has to be a string
                 if (typeof  key !== 'string') {
                     throw {
@@ -1080,12 +1206,34 @@ var jsonata = (function() {
         // iterate over the groups to evaluate the 'value' expression
         for (key in groups) {
             entry = groups[key];
-            var value = yield * evaluate(expr.lhs[entry.exprIndex][1], entry.data, environment);
+            var context = entry.data;
+            var env = environment;
+            if (reduce) {
+                var tuple = reduceTupleStream(entry.data);
+                context = tuple['@'];
+                delete tuple['@'];
+                env = createFrameFromTuple(environment, tuple);
+            }
+            var value = yield * evaluate(expr.lhs[entry.exprIndex][1], context, env);
             if(typeof value !== 'undefined') {
                 result[key] = value;
             }
         }
 
+        return result;
+    }
+
+    function reduceTupleStream(tupleStream) {
+        if(!Array.isArray(tupleStream)) {
+            return tupleStream;
+        }
+        var result = {};
+        Object.assign(result, tupleStream[0]);
+        for(var ii = 1; ii < tupleStream.length; ii++) {
+            for(const prop in tupleStream[ii]) {
+                result[prop] = fn.append(result[prop], tupleStream[ii][prop]);
+            }
+        }
         return result;
     }
 
@@ -1123,7 +1271,19 @@ var jsonata = (function() {
             return result;
         }
 
-        result = new Array(rhs - lhs + 1);
+        // limit the size of the array to ten million entries (1e7)
+        // this is an implementation defined limit to protect against
+        // memory and performance issues.  This value may increase in the future.
+        var size = rhs - lhs + 1;
+        if(size > 1e7) {
+            throw {
+                code: "D2014",
+                stack: (new Error()).stack,
+                value: size
+            };
+        }
+
+        result = new Array(size);
         for (var item = lhs, index = 0; item <= rhs; item++, index++) {
             result[index] = item;
         }
@@ -1243,7 +1403,7 @@ var jsonata = (function() {
         var result;
         // if the variable name is empty string, then it refers to context value
         if (expr.value === '') {
-            result = input;
+            result = input && input.outerWrapper ? input[0] : input;
         } else {
             result = environment.lookup(expr.value);
         }
@@ -1261,19 +1421,33 @@ var jsonata = (function() {
         var result;
 
         // evaluate the lhs, then sort the results in order according to rhs expression
-        var lhs = yield * evaluate(expr.lhs, input, environment);
+        //var lhs = yield * evaluate(expr.lhs, input, environment);
+        var lhs = input;
+        var isTupleSort = input.tupleStream ? true : false;
 
         // sort the lhs array
         // use comparator function
         var comparator = function*(a, b) { // eslint-disable-line require-yield
-            // expr.rhs is an array of order-by in priority order
+            // expr.terms is an array of order-by in priority order
             var comp = 0;
-            for(var index = 0; comp === 0 && index < expr.rhs.length; index++) {
-                var term = expr.rhs[index];
-                //evaluate the rhs expression in the context of a
-                var aa = yield * evaluate(term.expression, a, environment);
-                //evaluate the rhs expression in the context of b
-                var bb = yield * evaluate(term.expression, b, environment);
+            for(var index = 0; comp === 0 && index < expr.terms.length; index++) {
+                var term = expr.terms[index];
+                //evaluate the sort term in the context of a
+                var context = a;
+                var env = environment;
+                if(isTupleSort) {
+                    context = a['@'];
+                    env = createFrameFromTuple(environment, a);
+                }
+                var aa = yield * evaluate(term.expression, context, env);
+                //evaluate the sort term in the context of b
+                context = b;
+                env = environment;
+                if(isTupleSort) {
+                    context = b['@'];
+                    env = createFrameFromTuple(environment, b);
+                }
+                var bb = yield * evaluate(term.expression, context, env);
 
                 // type checks
                 var atype = typeof aa;
@@ -1432,13 +1606,11 @@ var jsonata = (function() {
         var result;
 
 
+        var lhs = yield * evaluate(expr.lhs, input, environment);
         if(expr.rhs.type === 'function') {
             // this is a function _invocation_; invoke it with lhs expression as the first argument
-            expr.rhs.arguments.unshift(expr.lhs);
-            result = yield * evaluateFunction(expr.rhs, input, environment);
-            expr.rhs.arguments.shift();
+            result = yield * evaluateFunction(expr.rhs, input, environment, { context: lhs });
         } else {
-            var lhs = yield * evaluate(expr.lhs, input, environment);
             var func = yield * evaluate(expr.rhs, input, environment);
 
             if(!isFunction(func)) {
@@ -1471,7 +1643,7 @@ var jsonata = (function() {
      * @param {Object} environment - Environment
      * @returns {*} Evaluated input data
      */
-    function* evaluateFunction(expr, input, environment) {
+    function* evaluateFunction(expr, input, environment, applyto) {
         var result;
 
         // create the procedure
@@ -1493,6 +1665,9 @@ var jsonata = (function() {
         // TODO: change proc input to local input only for association function
         proc.input = input;
         var evaluatedArgs = [];
+        if(typeof applyto !== 'undefined') {
+            evaluatedArgs.push(applyto.context);
+        }
         // eager evaluation - evaluate the arguments
         for (var jj = 0; jj < expr.arguments.length; jj++) {
             const arg = yield* evaluate(expr.arguments[jj], input, environment);
@@ -1509,13 +1684,22 @@ var jsonata = (function() {
             }
         }
         // apply the procedure
+        var procName = expr.procedure.type === 'path' ? expr.procedure.steps[0].value : expr.procedure.value;
         try {
+            if(typeof proc === 'object') {
+                proc.token = procName;
+                proc.position = expr.position;
+            }
             result = yield * apply(proc, evaluatedArgs, input, environment);
         } catch (err) {
-            // add the position field to the error
-            err.position = expr.position;
-            // and the function identifier
-            err.token = expr.procedure.type === 'path' ? expr.procedure.steps[0].value : expr.procedure.value;
+            if(!err.position) {
+                // add the position field to the error
+                err.position = expr.position;
+            }
+            if (!err.token) {
+                // and the function identifier
+                err.token = procName;
+            }
             throw err;
         }
         return result;
@@ -1537,6 +1721,10 @@ var jsonata = (function() {
             // the function returned a tail-call thunk
             // unpack it, evaluate its arguments, and apply the tail call
             var next = yield * evaluate(result.body.procedure, result.input, result.environment);
+            if(result.body.procedure.type === 'variable') {
+                next.token = result.body.procedure.value;
+            }
+            next.position = result.body.procedure.position;
             var evaluatedArgs = [];
             for(var ii = 0; ii < result.body.arguments.length; ii++) {
                 evaluatedArgs.push(yield * evaluate(result.body.arguments[ii], result.input, result.environment));
@@ -1557,40 +1745,50 @@ var jsonata = (function() {
      */
     function* applyInner(proc, args, input, environment) {
         var result;
-        var validatedArgs = args;
-        if(proc) {
-            validatedArgs = validateArguments(proc.signature, args, input);
-        }
+        try {
+            var validatedArgs = args;
+            if (proc) {
+                validatedArgs = validateArguments(proc.signature, args, input);
+            }
 
-        if (isLambda(proc)) {
-            result = yield * applyProcedure(proc, validatedArgs);
-        } else if (proc && proc._jsonata_function === true) {
-            var focus = {
-                environment: environment,
-                input: input
-            };
-            // the `focus` is passed in as the `this` for the invoked function
-            result = proc.implementation.apply(focus, validatedArgs);
-            // `proc.implementation` might be a generator function
-            // and `result` might be a generator - if so, yield
-            if(isIterable(result)) {
-                result = yield *result;
+            if (isLambda(proc)) {
+                result = yield* applyProcedure(proc, validatedArgs);
+            } else if (proc && proc._jsonata_function === true) {
+                var focus = {
+                    environment: environment,
+                    input: input
+                };
+                // the `focus` is passed in as the `this` for the invoked function
+                result = proc.implementation.apply(focus, validatedArgs);
+                // `proc.implementation` might be a generator function
+                // and `result` might be a generator - if so, yield
+                if (isIterable(result)) {
+                    result = yield* result;
+                }
+            } else if (typeof proc === 'function') {
+                // typically these are functions that are returned by the invocation of plugin functions
+                // the `input` is being passed in as the `this` for the invoked function
+                // this is so that functions that return objects containing functions can chain
+                // e.g. $func().next().next()
+                result = proc.apply(input, validatedArgs);
+                /* istanbul ignore next */
+                if (isIterable(result)) {
+                    result = yield* result;
+                }
+            } else {
+                throw {
+                    code: "T1006",
+                    stack: (new Error()).stack
+                };
             }
-        } else if (typeof proc === 'function') {
-            // typically these are functions that are returned by the invocation of plugin functions
-            // the `input` is being passed in as the `this` for the invoked function
-            // this is so that functions that return objects containing functions can chain
-            // e.g. $func().next().next()
-            result = proc.apply(input, validatedArgs);
-            /* istanbul ignore next */
-            if(isIterable(result)) {
-                result = yield *result;
+        } catch(err) {
+            if(proc) {
+                if (typeof err.token == 'undefined' && typeof proc.token !== 'undefined') {
+                    err.token = proc.token;
+                }
+                err.position = proc.position;
             }
-        } else {
-            throw {
-                code: "T1006",
-                stack: (new Error()).stack
-            };
+            throw err;
         }
         return result;
     }
@@ -1898,7 +2096,7 @@ var jsonata = (function() {
     staticFrame.bind('max', defineFunction(fn.max, '<a<n>:n>'));
     staticFrame.bind('min', defineFunction(fn.min, '<a<n>:n>'));
     staticFrame.bind('average', defineFunction(fn.average, '<a<n>:n>'));
-    staticFrame.bind('string', defineFunction(fn.string, '<x-:s>'));
+    staticFrame.bind('string', defineFunction(fn.string, '<x-b?:s>'));
     staticFrame.bind('substring', defineFunction(fn.substring, '<s-nn?:s>'));
     staticFrame.bind('substringBefore', defineFunction(fn.substringBefore, '<s-s:s>'));
     staticFrame.bind('substringAfter', defineFunction(fn.substringAfter, '<s-s:s>'));
@@ -1929,6 +2127,7 @@ var jsonata = (function() {
     staticFrame.bind('map', defineFunction(fn.map, '<af>'));
     staticFrame.bind('zip', defineFunction(fn.zip, '<a+>'));
     staticFrame.bind('filter', defineFunction(fn.filter, '<af>'));
+    staticFrame.bind('single', defineFunction(fn.single, '<af?>'));
     staticFrame.bind('reduce', defineFunction(fn.foldLeft, '<afj?:j>')); // TODO <f<jj:j>a<j>j?:j>
     staticFrame.bind('sift', defineFunction(fn.sift, '<o-f?:o>'));
     staticFrame.bind('keys', defineFunction(fn.keys, '<x-:a<s>>'));
@@ -1939,10 +2138,17 @@ var jsonata = (function() {
     staticFrame.bind('merge', defineFunction(fn.merge, '<a<o>:o>'));
     staticFrame.bind('reverse', defineFunction(fn.reverse, '<a:a>'));
     staticFrame.bind('each', defineFunction(fn.each, '<o-f:a>'));
+    staticFrame.bind('error', defineFunction(fn.error, '<s?:x>'));
+    staticFrame.bind('assert', defineFunction(fn.assert, '<bs?:x>'));
     staticFrame.bind('sort', defineFunction(fn.sort, '<af?:a>'));
     staticFrame.bind('shuffle', defineFunction(fn.shuffle, '<a:a>'));
+    staticFrame.bind('distinct', defineFunction(fn.distinct, '<x:x>'));
     staticFrame.bind('base64encode', defineFunction(fn.base64encode, '<s-:s>'));
     staticFrame.bind('base64decode', defineFunction(fn.base64decode, '<s-:s>'));
+    staticFrame.bind('encodeUrlComponent', defineFunction(fn.encodeUrlComponent, '<s-:s>'));
+    staticFrame.bind('encodeUrl', defineFunction(fn.encodeUrl, '<s-:s>'));
+    staticFrame.bind('decodeUrlComponent', defineFunction(fn.decodeUrlComponent, '<s-:s>'));
+    staticFrame.bind('decodeUrl', defineFunction(fn.decodeUrl, '<s-:s>'));
     staticFrame.bind('eval', defineFunction(functionEval, '<sx?:x>'));
     staticFrame.bind('toMillis', defineFunction(datetime.toMillis, '<s-s?:n>'));
     staticFrame.bind('fromMillis', defineFunction(datetime.fromMillis, '<n-s?s?:s>'));
@@ -1984,6 +2190,9 @@ var jsonata = (function() {
         "S0211": "The symbol {{token}} cannot be used as a unary operator",
         "S0212": "The left side of := must be a variable name (start with $)",
         "S0213": "The literal value {{value}} cannot be used as a step within a path expression",
+        "S0214": "The right side of {{token}} must be a variable name (start with $)",
+        "S0215": "A context variable binding must precede any predicates on a step",
+        "S0216": "A context variable binding must precede the 'order-by' clause on a step",
         "S0301": "Empty regular expressions are not allowed",
         "S0302": "No terminating / in regular expression",
         "S0402": "Choice groups containing parameterized types are not supported",
@@ -2015,6 +2224,7 @@ var jsonata = (function() {
         "T2011": "The insert/update clause of the transform expression must evaluate to an object: {{value}}",
         "T2012": "The delete clause of the transform expression must evaluate to a string or array of strings: {{value}}",
         "T2013": "The transform expression clones the input object using the $clone() function.  This has been overridden in the current scope by a non-function.",
+        "D2014": "The size of the sequence allocated by the range operator (..) must not exceed 1e6.  Attempted to allocate {{value}}.",
         "D3001": "Attempting to invoke string function on Infinity or NaN",
         "D3010": "Second argument of replace function cannot be an empty string",
         "D3011": "Fourth argument of replace function must evaluate to a positive number",
@@ -2022,7 +2232,7 @@ var jsonata = (function() {
         "D3020": "Third argument of split function must evaluate to a positive number",
         "D3030": "Unable to cast value to a number: {{value}}",
         "D3040": "Third argument of match function must evaluate to a positive number",
-        "D3050": "First argument of reduce function must be a function with two arguments",
+        "D3050": "The second argument of reduce function must be a function with at least two arguments",
         "D3060": "The sqrt function cannot be applied to a negative number: {{value}}",
         "D3061": "The power function has resulted in a value that cannot be represented as a JSON number: base={{value}}, exponent={{exp}}",
         "D3070": "The single argument form of the sort function can only be applied to an array of strings or an array of numbers.  Use the second argument to specify a comparison function",
@@ -2050,7 +2260,12 @@ var jsonata = (function() {
         "D3133": "The 'name' modifier can only be applied to months and days in the date/time picture string, not {{value}}",
         "D3134": "The timezone integer format specifier cannot have more than four digits",
         "D3135": "No matching closing bracket ']' in date/time picture string",
-        "D3136": "The date/time picture string is missing specifiers required to parse the timestamp"
+        "D3136": "The date/time picture string is missing specifiers required to parse the timestamp",
+        "D3137": "{{{message}}}",
+        "D3138": "The $single() function expected exactly 1 matching result.  Instead it matched more.",
+        "D3139": "The $single() function expected exactly 1 matching result.  Instead it matched 0.",
+        "D3140": "Malformed URL passed to ${{{functionName}}}(): {{value}}",
+        "D3141": "{{{message}}}"
     };
 
     /**
@@ -2136,6 +2351,12 @@ var jsonata = (function() {
                 // the $now() and $millis() functions will return this value - whenever it is called
                 timestamp = new Date();
                 exec_env.timestamp = timestamp;
+
+                // if the input is a JSON array, then wrap it in a singleton sequence so it gets treated as a single input
+                if(Array.isArray(input) && !isSequence(input)) {
+                    input = createSequence(input);
+                    input.outerWrapper = true;
+                }
 
                 var result, it;
                 // if a callback function is supplied, then drive the generator in a promise chain

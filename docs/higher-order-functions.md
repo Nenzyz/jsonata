@@ -9,13 +9,13 @@ __Signature:__ `$map(array, function)`
 
 Returns an array containing the results of applying the `function` parameter to each value in the `array` parameter.
 
-The function that is supplied as the second parameter must have the following signature:  
+The function that is supplied as the second parameter must have the following signature:
 
-`function(value [, index [, array]])` 
- 
-Each value in the input array is passed in as the first parameter in the supplied function.  The index (position) of that value in the input array is passed in as the second parameter, if specified.  The whole input array is passed in as the third parameter, if specified.  
+`function(value [, index [, array]])`
 
-__Examples__  
+Each value in the input array is passed in as the first parameter in the supplied function.  The index (position) of that value in the input array is passed in as the second parameter, if specified.  The whole input array is passed in as the third parameter, if specified.
+
+__Examples__
 - `$map([1..5], $string)` => `["1", "2", "3", "4", "5"]`
 
 With user-defined (lambda) function:
@@ -41,17 +41,36 @@ __Signature:__ `$filter(array, function)`
 
 Returns an array containing only the values in the `array` parameter that satisfy the `function` predicate (i.e. `function` returns Boolean `true` when passed the value).
 
-The function that is supplied as the second parameter must have the following signature:  
+The function that is supplied as the second parameter must have the following signature:
 
-`function(value [, index [, array]])` 
- 
-Each value in the input array is passed in as the first parameter in the supplied function.  The index (position) of that value in the input array is passed in as the second parameter, if specified.  The whole input array is passed in as the third parameter, if specified.  
+`function(value [, index [, array]])`
 
-__Example__  
+Each value in the input array is passed in as the first parameter in the supplied function.  The index (position) of that value in the input array is passed in as the second parameter, if specified.  The whole input array is passed in as the third parameter, if specified.
+
+__Example__
 The following expression returns all the products whose price is higher than average:
 ```
 $filter(Account.Order.Product, function($v, $i, $a) {
   $v.Price > $average($a.Price)
+})
+```
+
+## `$single()`
+__Signature:__ `$single(array, function)`
+
+Returns the one and only one value in the `array` parameter that satisfy the `function` predicate (i.e. `function` returns Boolean `true` when passed the value).  Throws an exception if the number of matching values is not exactly one.
+
+The function that is supplied as the second parameter must have the following signature:
+
+`function(value [, index [, array]])`
+
+Each value in the input array is passed in as the first parameter in the supplied function.  The index (position) of that value in the input array is passed in as the second parameter, if specified.  The whole input array is passed in as the third parameter, if specified.
+
+__Example__
+The following expression the product in the order whose SKU is `"0406654608"`:
+```
+$single(Account.Order.Product, function($v, $i, $a) {
+  $v.SKU = "0406654608"
 })
 ```
 
@@ -60,7 +79,9 @@ __Signature:__ `$reduce(array, function [, init])`
 
 Returns an aggregated value derived from applying the `function` parameter successively to each value in `array` in combination with the result of the previous application of the function.
 
-The function must accept two arguments, and behaves like an infix operator between each value within the `array`.
+The `function` must accept at least two arguments, and behaves like an infix operator between each value within the `array`.  The signature of this supplied function must be of the form:
+
+`myfunc($accumulator, $value[, $index[, $array]])`
 
 __Example__
 
@@ -82,11 +103,11 @@ Returns an object that contains only the key/value pairs from the `object` param
 
 If `object` is not specified, then the context value is used as the value of `object`.  It is an error if `object` is not an object.
 
-The function that is supplied as the second parameter must have the following signature:  
+The function that is supplied as the second parameter must have the following signature:
 
-`function(value [, key [, object]])` 
- 
-Each value in the input object is passed in as the first parameter in the supplied function.  The key (property name) of that value in the input object is passed in as the second parameter, if specified.  The whole input object is passed in as the third parameter, if specified.  
+`function(value [, key [, object]])`
+
+Each value in the input object is passed in as the first parameter in the supplied function.  The key (property name) of that value in the input object is passed in as the second parameter, if specified.  The whole input object is passed in as the third parameter, if specified.
 
 __Example__
 

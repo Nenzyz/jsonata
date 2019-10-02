@@ -13,10 +13,12 @@ const functions = (() => {
     var isArrayOfStrings = utils.isArrayOfStrings;
     var isArrayOfNumbers = utils.isArrayOfNumbers;
     var createSequence = utils.createSequence;
+    var isSequence = utils.isSequence;
     var isFunction = utils.isFunction;
     var isLambda = utils.isLambda;
     var isIterable = utils.isIterable;
     var getFunctionArity = utils.getFunctionArity;
+    var deepEquals = utils.isDeepEqual;
 
     /**
      * Sum function
@@ -97,11 +99,12 @@ const functions = (() => {
     }
 
     /**
-     * Stingify arguments
+     * Stringify arguments
      * @param {Object} arg - Arguments
+     * @param {boolean} [prettify] - Pretty print the result
      * @returns {String} String from arguments
      */
-    function string(arg) {
+    function string(arg, prettify = false) {
         // undefined inputs always return undefined
         if (typeof arg === 'undefined') {
             return undefined;
@@ -121,11 +124,13 @@ const functions = (() => {
                 value: arg,
                 stack: (new Error()).stack
             };
-        } else
+        } else {
+            var space = prettify ? 2 : 0;
             str = JSON.stringify(arg, function (key, val) {
                 return (typeof val !== 'undefined' && val !== null && val.toPrecision && isNumeric(val)) ? Number(val.toPrecision(15)) :
                     (val && isFunction(val)) ? '' : val;
-            });
+            }, space);
+        }
         return str;
     }
 
@@ -550,7 +555,7 @@ const functions = (() => {
                 // Simply doing `new Buffer` at this point causes Browserify to pull
                 // in the entire Buffer browser library, which is large and unnecessary.
                 // Using `global.Buffer` defeats this.
-                return new global.Buffer(str, 'binary').toString('base64');
+                return new global.Buffer.from(str, 'binary').toString('base64'); // eslint-disable-line new-cap
             };
         return btoa(str);
     }
@@ -575,6 +580,110 @@ const functions = (() => {
                 return new global.Buffer(str, 'base64').toString('binary');
             };
         return atob(str);
+    }
+
+    /**
+     * Encode a string into a component for a url
+     * @param {String} str - String to encode
+     * @returns {string} Encoded string
+     */
+    function encodeUrlComponent(str) {
+        // undefined inputs always return undefined
+        if (typeof str === 'undefined') {
+            return undefined;
+        }
+
+        // Catch URIErrors when URI sequence is malformed
+        var returnVal;
+        try {
+            returnVal = encodeURIComponent(str);
+        } catch (e) {
+            throw {
+                code: "D3140",
+                stack: (new Error()).stack,
+                value: str,
+                functionName: "encodeUrlComponent"
+            };
+        }
+        return returnVal;
+    }
+
+    /**
+     * Encode a string into a url
+     * @param {String} str - String to encode
+     * @returns {string} Encoded string
+     */
+    function encodeUrl(str) {
+        // undefined inputs always return undefined
+        if (typeof str === 'undefined') {
+            return undefined;
+        }
+
+        // Catch URIErrors when URI sequence is malformed
+        var returnVal;
+        try {
+            returnVal = encodeURI(str);
+        } catch (e) {
+            throw {
+                code: "D3140",
+                stack: (new Error()).stack,
+                value: str,
+                functionName: "encodeUrl"
+            };
+        }
+        return returnVal;
+    }
+
+    /**
+     * Decode a string from a component for a url
+     * @param {String} str - String to decode
+     * @returns {string} Decoded string
+     */
+    function decodeUrlComponent(str) {
+        // undefined inputs always return undefined
+        if (typeof str === 'undefined') {
+            return undefined;
+        }
+
+        // Catch URIErrors when URI sequence is malformed
+        var returnVal;
+        try {
+            returnVal = decodeURIComponent(str);
+        } catch (e) {
+            throw {
+                code: "D3140",
+                stack: (new Error()).stack,
+                value: str,
+                functionName: "decodeUrlComponent"
+            };
+        }
+        return returnVal;
+    }
+
+    /**
+     * Decode a string from a url
+     * @param {String} str - String to decode
+     * @returns {string} Decoded string
+     */
+    function decodeUrl(str) {
+        // undefined inputs always return undefined
+        if (typeof str === 'undefined') {
+            return undefined;
+        }
+
+        // Catch URIErrors when URI sequence is malformed
+        var returnVal;
+        try {
+            returnVal = decodeURI(str);
+        } catch (e) {
+            throw {
+                code: "D3140",
+                stack: (new Error()).stack,
+                value: str,
+                functionName: "decodeUrl"
+            };
+        }
+        return returnVal;
     }
 
     /**
@@ -1087,7 +1196,7 @@ const functions = (() => {
         if (typeof arg === 'number') {
             // already a number
             result = arg;
-        } else if (typeof arg === 'string' && /^-?(0|([1-9][0-9]*))(\.[0-9]+)?([Ee][-+]?[0-9]+)?$/.test(arg) && !isNaN(parseFloat(arg)) && isFinite(arg)) {
+        } else if (typeof arg === 'string' && /^-?[0-9]+(\.[0-9]+)?([Ee][-+]?[0-9]+)?$/.test(arg) && !isNaN(parseFloat(arg)) && isFinite(arg)) {
             result = parseFloat(arg);
         } else if (arg === true) {
             // boolean true casts to 1
@@ -1325,7 +1434,7 @@ const functions = (() => {
 
     /**
      * Helper function to build the arguments to be supplied to the function arg of the
-     * HOFs map, filter, each and sift
+     * HOFs map, filter, each, sift and single
      * @param {function} func - the function to be invoked
      * @param {*} arg1 - the first (required) arg - the value
      * @param {*} arg2 - the second (optional) arg - the position (index or key)
@@ -1399,6 +1508,55 @@ const functions = (() => {
     }
 
     /**
+     * Given an array, find the single element matching a specified condition
+     * Throws an exception if the number of matching elements is not exactly one
+     * @param {Array} [arr] - array to filter
+     * @param {Function} [func] - predicate function
+     * @returns {*} Matching element
+     */
+    function* single(arr, func) { // eslint-disable-line require-yield
+        // undefined inputs always return undefined
+        if (typeof arr === 'undefined') {
+            return undefined;
+        }
+
+        var hasFoundMatch = false;
+        var result;
+
+        for (var i = 0; i < arr.length; i++) {
+            var entry = arr[i];
+            var positiveResult = true;
+            if (typeof func !== 'undefined') {
+                var func_args = hofFuncArgs(func, entry, i, arr);
+                // invoke func
+                var res = yield* func.apply(this, func_args);
+                positiveResult = boolean(res);
+            }
+            if (positiveResult) {
+                if(!hasFoundMatch) {
+                    result = entry;
+                    hasFoundMatch = true;
+                } else {
+                    throw {
+                        stack: (new Error()).stack,
+                        code: "D3138",
+                        index: i
+                    };
+                }
+            }
+        }
+
+        if(!hasFoundMatch) {
+            throw {
+                stack: (new Error()).stack,
+                code: "D3139"
+            };
+        }
+
+        return result;
+    }
+
+    /**
      * Convolves (zips) each value from a set of arrays
      * @param {Array} [args] - arrays to zip
      * @returns {Array} Zipped array
@@ -1438,7 +1596,8 @@ const functions = (() => {
 
         var result;
 
-        if (getFunctionArity(func) !== 2) {
+        var arity = getFunctionArity(func);
+        if (arity < 2) {
             throw {
                 stack: (new Error()).stack,
                 code: "D3050",
@@ -1456,7 +1615,14 @@ const functions = (() => {
         }
 
         while (index < sequence.length) {
-            result = yield* func.apply(this, [result, sequence[index]]);
+            var args = [result, sequence[index]];
+            if (arity >= 3) {
+                args.push(index);
+            }
+            if (arity >= 4) {
+                args.push(sequence);
+            }
+            result = yield* func.apply(this, args);
             index++;
         }
 
@@ -1501,7 +1667,11 @@ const functions = (() => {
             for(var ii = 0; ii < input.length; ii++) {
                 var res =  lookup(input[ii], key);
                 if (typeof res !== 'undefined') {
-                    result.push(res);
+                    if (Array.isArray(res)) {
+                        result.push(...res);
+                    } else {
+                        result.push(res);
+                    }
                 }
             }
         } else if (input !== null && typeof input === 'object') {
@@ -1644,6 +1814,38 @@ const functions = (() => {
     }
 
     /**
+     *
+     * @param {string} [message] - the message to attach to the error
+     * @throws custom error with code 'D3137'
+     */
+    function error(message) {
+        throw {
+            code: "D3137",
+            stack: (new Error()).stack,
+            message: message || "$error() function evaluated"
+        };
+    }
+
+    /**
+     *
+     * @param {boolean} condition - the condition to evaluate
+     * @param {string} [message] - the message to attach to the error
+     * @throws custom error with code 'D3137'
+     * @returns {undefined}
+     */
+    function assert(condition, message) {
+        if(!condition) {
+            throw {
+                code: "D3141",
+                stack: (new Error()).stack,
+                message: message || "$assert() statement failed"
+            };
+        }
+
+        return undefined;
+    }
+
+    /**
      * Implements the merge sort (stable) with optional comparator function
      *
      * @param {Array} arr - the array to sort
@@ -1747,6 +1949,40 @@ const functions = (() => {
     }
 
     /**
+     * Returns the values that appear in a sequence, with duplicates eliminated.
+     * @param {Array} arr - An array or sequence of values
+     * @returns {Array} - sequence of distinct values
+     */
+    function distinct(arr) {
+        // undefined inputs always return undefined
+        if (typeof arr === 'undefined') {
+            return undefined;
+        }
+
+        if(!Array.isArray(arr) || arr.length <= 1) {
+            return arr;
+        }
+
+        var results = isSequence(arr) ? createSequence() : [];
+
+        for(var ii = 0; ii < arr.length; ii++) {
+            var value = arr[ii];
+            // is this value already in the result sequence?
+            var includes = false;
+            for(var jj = 0; jj < results.length; jj++) {
+                if (deepEquals(value, results[jj])) {
+                    includes = true;
+                    break;
+                }
+            }
+            if(!includes) {
+                results.push(value);
+            }
+        }
+        return results;
+    }
+
+    /**
      * Applies a predicate function to each key/value pair in an object, and returns an object containing
      * only the key/value pairs that passed the predicate
      *
@@ -1802,13 +2038,17 @@ const functions = (() => {
         boolean, not,
         map, zip, filter, foldLeft, sift,
         keys, lookup, append, exists, spread, merge, reverse, each, sort, shuffle,
-        base64encode, base64decode
+        base64encode, base64decode,
+        map, zip, filter, single, foldLeft, sift,
+        keys, lookup, append, exists, spread, merge, reverse, each, error, assert, sort, shuffle, distinct,
+        base64encode, base64decode,  encodeUrlComponent, encodeUrl, decodeUrlComponent, decodeUrl
         , blog, slog 
         //, dbg_on, dbg_off, trace_on, trace_off, kanren
         //, mod_date, to_date, date, now, clear_tz, set_tz
         //, eval, flatten, hash
         //, is_object, is_number, is_string, is_array, is_boolean, is_date
         //, cast_boolean, type, t, tuple, atom
+
     };
 })();
 
