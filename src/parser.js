@@ -9,6 +9,7 @@
  */
 
 var parseSignature = require('./signature');
+var utils = require('./utils');
 
 const parser = (() => {
     'use strict';
@@ -398,6 +399,49 @@ const parser = (() => {
                 var end = path.indexOf('`', position);
                 if (end !== -1) {
                     name = path.substring(position, end);
+                    // Special case for `template strings` of JavaScript
+                    if (name.indexOf("${", position) != -1) {
+                        var neo_name = `\`${name}\``.replace(/\${([^}]+)}/g, "` %separator% ( $1 ) %separator% `");
+
+                        var neo_parts = [];
+                        neo_name.split(" %separator% ").forEach(
+                            function(i){
+                                if(i[0] == "`") {
+                                    var clear_i = i.substr(1, i.length - 2);
+                                    var qqindx = clear_i.indexOf('"');
+                                    var qindx = clear_i.indexOf("'");
+                                    if (qqindx != -1 || qindx != -1) {
+                                        if(qqindx != -1 && qindx != -1 && qqindx > qindx) {
+                                            clear_i = `"${clear_i}"`;
+                                        }
+                                        if(qqindx != -1 && qindx != -1 && qqindx < qindx) {
+                                            clear_i = `'${clear_i}'`;
+                                        }
+                                    } if (qqindx != -1) {
+                                        clear_i = `'${clear_i}'`;
+                                    // } if (qindx != -1) {
+                                    //     clear_i = `"${clear_i}"`;
+                                    } else {
+                                        clear_i = `"${clear_i}"`;
+                                    }
+                                    neo_parts.push(clear_i);
+                                }else{
+                                    neo_parts.push(i);
+                                }
+                            }
+                        );
+
+                        neo_name = neo_parts.join(" & ");
+
+                        path = path.replace(`\`${name}\``, neo_name);
+                        length = path.length;
+                        
+                        var tname = neo_parts[0].substr(1, neo_parts[0].length - 2);
+                        if (tname.length != name.length) {
+                            position = position + tname.length + 1;
+                            return create('string', tname);
+                        }
+                    }
                     position = end + 1;
                     return create('name', name);
                 }
@@ -1291,18 +1335,18 @@ const parser = (() => {
 
                             if (result.rhs.type === 'path' || (result.rhs.type === 'variable' && result.rhs.value === '$')) {
                                 if (result.rhs.steps) {
-                                    result = ast_optimize(expr.rhs);
+                                    result = result.rhs;
                                     // var last_step = result.steps.pop();
                                     var last_step;
-                                    if (result.steps[result.steps.length - 1].predicate) {
-                                        last_step = {position: 47, type: "variable", value: ""};
+                                    if (result.steps[result.steps.length - 1].stages) {
+                                        last_step = {position: -1, type: "variable", value: ""};
                                     } else {
                                         last_step = result.steps.pop();
                                     }
                                     result.steps.map(function(el){
                                         el.create_missing = true;
                                     });
-                                    last_step.parsed_parent = parse_array(result).flat();
+                                    last_step.parsed_parent = utils.flatten(parse_array(result));
                                     var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, rhs: last_step, lhs: ast_optimize(expr.lhs) }] };
                                     result.steps.push(change_block);
                                 } else {
@@ -1319,7 +1363,7 @@ const parser = (() => {
                             if (result.steps) {
                                 // var last_step = result.steps.pop();
                                 var last_step;
-                                if (result.steps[result.steps.length - 1].predicate) {
+                                if (result.steps[result.steps.length - 1].stages) {
                                     last_step = {position: 47, type: "variable", value: ""};
                                 } else {
                                     last_step = result.steps.pop();
@@ -1327,7 +1371,7 @@ const parser = (() => {
                                 result.steps.map(function(el){
                                     el.create_missing = true;
                                 });
-                                last_step.parsed_parent = parse_array(result).flat();
+                                last_step.parsed_parent = utils.flatten(parse_array(result));
                                 var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, lhs: last_step, rhs: ast_optimize(expr.rhs) }] };
                                 result.steps.push(change_block);
                             } else {
@@ -1340,7 +1384,7 @@ const parser = (() => {
                             result = ast_optimize(expr.expression);
                             if (result.steps) {
                                 var last_step;
-                                if (result.steps[result.steps.length - 1].predicate) {
+                                if (result.steps[result.steps.length - 1].stages) {
                                     last_step = {position: 47, type: "variable", value: ""};
                                 } else {
                                     last_step = result.steps.pop();
@@ -1599,6 +1643,12 @@ const parser = (() => {
         if (el.predicate !== undefined && el.predicate[0] !== undefined) {
             // output = output + "[" + el.predicate[0].value + "]";
             output.push(el.predicate[0].value);
+        }
+        if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
+            // output = output + "[" + el.predicate[0].value + "]";
+            output.push(el.stages[0].value);
+        } else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
+            output.push(el.stages[0].expr.value);
         }
 
         var rest = [];

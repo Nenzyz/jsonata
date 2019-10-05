@@ -175,6 +175,23 @@ const utils = (() => {
         }
         return false;
     }
+    
+    /**
+     * Flatten array
+     * @param {*} array array value
+     * @param {*} rhs second value
+     * @returns {array} flatten array
+     */
+    function flatten(array) {
+        var flattend = [];
+        (function flat(array) {
+            array.forEach(function (el) {
+                if (Array.isArray(el)) flat(el);
+                else flattend.push(el);
+            });
+        })(array);
+        return flattend;
+    }
 
     return {
         isNumeric,
@@ -186,7 +203,8 @@ const utils = (() => {
         isLambda,
         isIterable,
         getFunctionArity,
-        isDeepEqual
+        isDeepEqual,
+        flatten
     };
 })();
 

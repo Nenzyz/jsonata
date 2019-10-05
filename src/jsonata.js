@@ -146,6 +146,11 @@ var jsonata = (function() {
                 result = yield * evaluateFilter(expr.predicate[ii].expr, result, environment);
             }
         }
+        if (expr.hasOwnProperty('stages')) {
+            for(var ii = 0; ii < expr.stages.length; ii++) {
+                result = yield * evaluateFilter(expr.stages[ii].expr, result, environment);
+            }
+        }
 
         if (expr.type !== 'path' && expr.hasOwnProperty('group')) {
             result = yield * evaluateGroupExpression(expr.group, result, environment);
@@ -331,6 +336,11 @@ var jsonata = (function() {
             if (el.predicate !== undefined && el.predicate[0] !== undefined) {
                 output = output + "[" + el.predicate[0].value + "]";
             }
+            if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
+                output = output + "[" + el.stages[0].value + "]";
+            }else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
+                output = output + "[" + el.stages[0].expr.value + "]";
+            }
 
             var rest = "";
             if (el.steps !== undefined) {
@@ -368,7 +378,7 @@ var jsonata = (function() {
                 input = undefined;
             } else {
                 var applicator = "delete " + parsed_path;
-                console.log("eval:", applicator);
+                // console.log("eval:", applicator);
                 eval(applicator);    
             }
         } else {
@@ -394,7 +404,7 @@ var jsonata = (function() {
                 if (parsed_path_array.length > 0) create_missing(parsed_path_array);
 
                 var applicator = parsed_path + " = " + JSON.stringify(value_value);
-                console.log("eval:", applicator);
+                // console.log("eval:", applicator);
                 eval(applicator);
             }
         }
@@ -402,7 +412,7 @@ var jsonata = (function() {
     }
 
     function create_missing(obj, list) {
-        console.log("create missing:", list);
+        // console.log("create missing:", list);
 
         if (obj == undefined) obj = {};
         var el = list[0] || "";
@@ -452,7 +462,7 @@ var jsonata = (function() {
             var step = expr.steps[ii];
 
             // NB: TI: walking by non-existing path and creating it (change functionality)
-            if (step.create_missing) inputSequence[0][step.value] = inputSequence[0][step.value] || {};
+            if(step.create_missing && step.value != "$") inputSequence[0][step.value] = inputSequence[0][step.value] || {};
             if(step.tuple) {
                 isTupleStream = true;
             }
@@ -1662,7 +1672,7 @@ var jsonata = (function() {
         }
 
         // NB: TI: change proc input to local input only for association function
-        proc.input = input;
+        if (proc != undefined) proc.input = input;
         var evaluatedArgs = [];
         if(typeof applyto !== 'undefined') {
             evaluatedArgs.push(applyto.context);
