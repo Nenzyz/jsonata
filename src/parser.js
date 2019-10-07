@@ -1349,6 +1349,7 @@ const parser = (() => {
                                     last_step.parsed_parent = utils.flatten(parse_array(result));
                                     var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, rhs: last_step, lhs: ast_optimize(expr.lhs) }] };
                                     result.steps.push(change_block);
+                                    result.mode = 'change';
                                 } else {
                                     result.type = 'change';
                                 }
@@ -1364,7 +1365,7 @@ const parser = (() => {
                                 // var last_step = result.steps.pop();
                                 var last_step;
                                 if (result.steps[result.steps.length - 1].stages) {
-                                    last_step = {position: 47, type: "variable", value: ""};
+                                    last_step = {position: -1, type: "variable", value: ""};
                                 } else {
                                     last_step = result.steps.pop();
                                 }
@@ -1374,6 +1375,7 @@ const parser = (() => {
                                 last_step.parsed_parent = utils.flatten(parse_array(result));
                                 var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, lhs: last_step, rhs: ast_optimize(expr.rhs) }] };
                                 result.steps.push(change_block);
+                                result.mode = 'change';
                             } else {
                                 result = {type: 'change', value: expr.value, postion: expr.position};
                                 result.lhs = ast_optimize(expr.lhs);
@@ -1385,7 +1387,7 @@ const parser = (() => {
                             if (result.steps) {
                                 var last_step;
                                 if (result.steps[result.steps.length - 1].stages) {
-                                    last_step = {position: 47, type: "variable", value: ""};
+                                    last_step = {position: -1, type: "variable", value: ""};
                                 } else {
                                     last_step = result.steps.pop();
                                 }
@@ -1394,6 +1396,7 @@ const parser = (() => {
                                 });
                                 var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, expression: last_step }] };
                                 result.steps.push(change_block);
+                                result.mode = 'change';
                             } else {
                                 result = {type: 'change', value: expr.value, postion: expr.position};
                                 result.expression = ast_optimize(expr.expression);
@@ -1429,7 +1432,7 @@ const parser = (() => {
                     } else if (expr.value === "#'") {
                         result = ast_optimize(expr.expression);
                         
-                        var nprocedure = {type: 'function', name: expr.name, value: "(", position: expr.position, arguments: []};
+                        var nprocedure = {type: 'function', name: expr.name, value: "(", position: expr.position, arguments: [], mode: "backtick"};
                         nprocedure.procedure = result.steps[0];
                         nprocedure.procedure.type = "variable";
 
@@ -1646,9 +1649,11 @@ const parser = (() => {
         }
         if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
             // output = output + "[" + el.predicate[0].value + "]";
-            output.push(el.stages[0].value);
+            var v_value = typeof el.stages[0].value;
+            if (v_value == "number" || v_value == "string") output.push(el.stages[0].value);
         } else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
-            output.push(el.stages[0].expr.value);
+            var v_value = typeof el.stages[0].value;
+            if (v_value == "number" || v_value == "string") output.push(el.stages[0].expr.value);
         }
 
         var rest = [];

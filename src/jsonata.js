@@ -385,7 +385,7 @@ var jsonata = (function() {
             // global change like $$ <~ <value> doesn't work since it replaces and loses original object
             //   instead it should replace each of its keys, this works on a global level
 
-            // create missing for '$$.documents[id=1].name <~ <value>' should work only for already exsting filtered items, otherwise don't know how to create those
+            // create missing for '$$.documents[id=1].name <~ <value>' should work only for already existing filtered items, otherwise don't know how to create those
 
             value_value = yield * evaluate(value, input, environment);
             if ( parsed_path === "input" ) {
