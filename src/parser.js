@@ -20,6 +20,8 @@ const parser = (() => {
         ']': 0,
         '{': 70,
         '}': 0,
+        '?{': 70,
+        '}?': 0,
         '(': 80,
         ')': 0,
         ',': 0,
@@ -1560,6 +1562,7 @@ const parser = (() => {
                 case 'regex':
                 case 'atom':
                 case 'comment':
+                case 'path':
                     result = expr;
                     break;
                 case 'operator':
