@@ -13,7 +13,7 @@ var utils = require('./utils');
 
 const parser = (() => {
     'use strict';
-
+    // TI parts '?{' '}?' '::' '=<' '=>' '<~' '~X' '~=' '||' '#\''
     var operators = {
         '.': 75,
         '[': 80,
@@ -79,9 +79,9 @@ const parser = (() => {
         var position = 0;
         var length = path.length;
 
+        // TI part - make possible to extend object where needed with parameters
         var create = function (type, value, parameters) {
             var obj = {type: type, value: value, position: position};
-            // make possible to extend object where needed
             if (parameters !== undefined) { Object.assign(obj, parameters); }
             return obj;
         };
@@ -140,6 +140,7 @@ const parser = (() => {
                 position++;
                 currentChar = path.charAt(position);
             }
+            // TI parts single line comment '// ...' and eja doc element '/** ... */' 
             // skip single line comment
             if (currentChar === '/' && path.charAt(position + 1) === '/') {
                 position += 2;
@@ -229,11 +230,6 @@ const parser = (() => {
                 position += 2;
                 return create('operator', '<=');
             }
-            if (currentChar === '=' && path.charAt(position + 1) === '<') {
-                // <=
-                position += 2;
-                return create('operator', '<=');
-            }
             if (currentChar === '*' && path.charAt(position + 1) === '*') {
                 // **  descendant wildcard
                 position += 2;
@@ -243,6 +239,12 @@ const parser = (() => {
                 // ~>  chain function
                 position += 2;
                 return create('operator', '~>');
+            }
+            // TI parts ...
+            if (currentChar === '=' && path.charAt(position + 1) === '<') {
+                // <=
+                position += 2;
+                return create('operator', '<=');
             }
             if (currentChar === ':' && path.charAt(position + 1) === ':') {
                 // :: association assignment
@@ -260,7 +262,7 @@ const parser = (() => {
                 return create('operator', '~X');
             }
             if (currentChar === '|' && path.charAt(position + 1) === '|') {
-                // ||  chain function
+                // ||  or function
                 position += 2;
                 return create('operator', '||');
             }
@@ -401,7 +403,7 @@ const parser = (() => {
                 var end = path.indexOf('`', position);
                 if (end !== -1) {
                     name = path.substring(position, end);
-                    // Special case for `template strings` of JavaScript
+                    // TI parts - Special case for `template strings` of JavaScript
                     if (name.indexOf("${", position) != -1) {
                         var neo_name = `\`${name}\``.replace(/\${([^}]+)}/g, "` %separator% ( $1 ) %separator% `");
 
@@ -468,6 +470,7 @@ const parser = (() => {
                     } else {
                         name = path.substring(position, i);
                         position = i;
+                        // TI parts - eja lib
                         if (path.charAt(i) === ':' && path.charAt(i+1) === ':' ) {
                             // process so-called variable for eja libs ie. "system::date()"
                             var i2 = i + 2;
@@ -487,7 +490,7 @@ const parser = (() => {
                         }
                         switch (name) {
                             case 'or':
-                            case '||':
+                            case '||': // TI part
                             case 'in':
                             case 'and':
                                 return create('operator', name);
@@ -619,7 +622,7 @@ const parser = (() => {
             var symbol;
             switch (type) {
                 case 'name':
-                case 'atom':
+                case 'atom': // TI part
                 case 'variable':
                     symbol = symbol_table["(name)"];
                     break;
@@ -634,7 +637,7 @@ const parser = (() => {
                         });
                     }
                     break;
-                case 'comment':
+                case 'comment': // TI part
                 case 'string':
                 case 'number':
                 case 'value':
@@ -657,7 +660,7 @@ const parser = (() => {
             node = Object.create(symbol);
             node.value = value;
             node.type = type;
-            // some nodes using "mode" for classification
+            // TI part - some nodes using "mode" for classification
             if (next_token.mode) { node.mode = next_token.mode; }
             node.position = next_token.position;
             return node;
@@ -720,7 +723,7 @@ const parser = (() => {
             return s;
         };
 
-        // match postfix operators
+        // TI part - match postfix operators
         // <expression> <operator>
         var suffix = function (id, bp, led) {
             var bindingPower = bp || operators[id];
@@ -766,6 +769,7 @@ const parser = (() => {
         terminal("in"); //
         prefix("-"); // unary numeric negation
         infix("~>"); // function application / path setup
+        // TI parts - ...
         // prefix(":"); // tuple
         symbol("?{"); // switch open tag
         symbol("}?"); // switch close tag
@@ -818,11 +822,12 @@ const parser = (() => {
             }
             advance(")", true);
             // if the name of the function is 'function' or λ, then this is function definition (lambda function)
-            if (node.id === "{") { // if using a function call such as "system::date()" no need to form an function declaration
+            // TI part - if using a function call such as "system::date()" no need to form a function declaration
+            if (node.id === "{") {
                 if (left.type === 'name' && ((left.value === 'function' || left.value === 'fun' ||left.value === '\u03BB' || left.value === '\u0192' ) || left.mode === 'lib' ) ) {
                     // all of the args must be VARIABLE tokens
                     this.arguments.forEach(function (arg, index) {
-                        if (arg.type !== 'variable' && left.mode !== 'lib') {
+                        if (arg.type !== 'variable' && left.mode !== "lib") {
                             return handleError({
                                 code: "S0208",
                                 stack: (new Error()).stack,
@@ -856,6 +861,7 @@ const parser = (() => {
                             return handleError(err);
                         }
                     }
+                    // Ti part - parse eja lib body
                     // parse the function body
                     advance('{');
                     var expressions = [];
@@ -891,7 +897,7 @@ const parser = (() => {
             return this;
         });
 
-        // questionmark curly parenthesis - switch block expression
+        // TI part - questionmark curly parenthesis - switch block expression
         prefix("?{", function () {
             var expressions = [];
             while (node.id !== "}?") {
@@ -918,10 +924,10 @@ const parser = (() => {
             return this;
         });
 
-        // association reference
+        // TI part - association reference
         prefix("#'");
 
-        // association assign
+        // TI part - association assign
         infixr("::", operators['::'], function (left) {
             if (left.type !== 'string' && left.type !== 'name') {
                 return handleError({
@@ -959,7 +965,7 @@ const parser = (() => {
             }
             advance("]", true);
             this.expressions = a;
-            // TODO tuple can't be formed with :[...] due to symbol nature of ":"
+            // TI part - TODO tuple can't be formed with :[...] due to symbol nature of ":"
             // this.atom = left;
             this.type = "unary";
             return this;
@@ -1296,7 +1302,7 @@ const parser = (() => {
                             }
                             // throw error if there are any predicates defined at this point
                             // at this point the only type of stages can be predicates
-                            if(typeof step.stages !== 'undefined') {
+                            if(typeof step.stages !== 'undefined' || typeof step.predicate !== 'undefined') {
                                 throw {
                                     code: "S0215",
                                     stack: (new Error()).stack,
@@ -1322,6 +1328,12 @@ const parser = (() => {
                             step = result;
                             if (result.type === 'path') {
                                 step = result.steps[result.steps.length - 1];
+                            } else {
+                                result = {type: 'path', steps: [result]};
+                                if (typeof step.predicate !== 'undefined') {
+                                    step.stages = step.predicate;
+                                    delete step.predicate;
+                                }
                             }
                             if (typeof step.stages === 'undefined') {
                                 step.index = expr.rhs.value;
@@ -1331,78 +1343,43 @@ const parser = (() => {
                             step.tuple = true;
                             break;
                         case '~>':
-                            result = { type: 'apply', value: expr.value, position: expr.position };
+                            // CONSTRUCTION YARD
+                            result = {type: 'apply', value: expr.value, position: expr.position};
+                            result.rhs = ast_optimize(expr.rhs);     
                             result.lhs = ast_optimize(expr.lhs);
-                            result.rhs = ast_optimize(expr.rhs);
 
                             if (result.rhs.type === 'path' || (result.rhs.type === 'variable' && result.rhs.value === '$')) {
-                                if (result.rhs.steps) {
-                                    result = result.rhs;
-                                    // var last_step = result.steps.pop();
-                                    var last_step;
-                                    if (result.steps[result.steps.length - 1].stages) {
-                                        last_step = {position: -1, type: "variable", value: ""};
-                                    } else {
-                                        last_step = result.steps.pop();
-                                    }
-                                    result.steps.map(function(el){
-                                        el.create_missing = true;
-                                    });
-                                    last_step.parsed_parent = utils.flatten(parse_array(result));
-                                    var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, rhs: last_step, lhs: ast_optimize(expr.lhs) }] };
-                                    result.steps.push(change_block);
-                                    result.mode = 'change';
-                                } else {
-                                    result.type = 'change';
-                                }
+                                result.type = "change";
                             }
                             break;
-                        // CONSTRUCTION YARD
                         case '<~':
                             // The following reformat <expression> <~ <value> into
                             //   <expression before last path>.( <last path> <~ <value> )
                             // This is done due to complexity of change and for filter functionality
-                            result = ast_optimize(expr.lhs);
-                            if (result.steps) {
-                                // var last_step = result.steps.pop();
-                                var last_step;
-                                if (result.steps[result.steps.length - 1].stages) {
-                                    last_step = {position: -1, type: "variable", value: ""};
-                                } else {
-                                    last_step = result.steps.pop();
-                                }
-                                result.steps.map(function(el){
-                                    el.create_missing = true;
-                                });
-                                last_step.parsed_parent = utils.flatten(parse_array(result));
-                                var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, lhs: last_step, rhs: ast_optimize(expr.rhs) }] };
-                                result.steps.push(change_block);
-                                result.mode = 'change';
-                            } else {
-                                result = {type: 'change', value: expr.value, postion: expr.position};
-                                result.lhs = ast_optimize(expr.lhs);
-                                result.rhs = ast_optimize(expr.rhs);
-                            }
+                            result = {type: 'change', value: expr.value, postion: expr.position};
+                            result.lhs = ast_optimize(expr.lhs);
+                            result.rhs = ast_optimize(expr.rhs);
                             break;
                         case '~X':
-                            result = ast_optimize(expr.expression);
-                            if (result.steps) {
-                                var last_step;
-                                if (result.steps[result.steps.length - 1].stages) {
-                                    last_step = {position: -1, type: "variable", value: ""};
-                                } else {
-                                    last_step = result.steps.pop();
-                                }
-                                result.steps.map(function(el){
-                                    el.deletion_operation = true;
-                                });
-                                var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, expression: last_step }] };
-                                result.steps.push(change_block);
-                                result.mode = 'change';
-                            } else {
-                                result = {type: 'change', value: expr.value, postion: expr.position};
-                                result.expression = ast_optimize(expr.expression);
-                            }
+                            result = {type: 'change', value: expr.value, postion: expr.position};
+                            result.expression = ast_optimize(expr.expression);
+                            // if (result.steps) {
+                            //     var last_step;
+                            //     if (result.steps[result.steps.length - 1].stages) {
+                            //         last_step = {position: -1, type: "variable", value: ""};
+                            //     } else {
+                            //         last_step = result.steps.pop();
+                            //     }
+                            //     result.steps.map(function(el){
+                            //         el.deletion_operation = true;
+                            //     });
+                            //     var change_block = { type: "block", expressions: [{ type: "change", position: expr.position, value: expr.value, expression: last_step }] };
+                            //     result.steps.push(change_block);
+                            //     result.mode = 'change';
+                            // } else {
+                            //     result = {type: 'change', value: expr.value, postion: expr.position};
+                            //     result.expression = ast_optimize(expr.expression);
+                            // }
                             break;
                         case '::':
                             result = {type: 'bind', value: expr.value, position: expr.position};
@@ -1432,10 +1409,11 @@ const parser = (() => {
                             return ast_optimize(item);
                         });
                     } else if (expr.value === "#'") {
+                        // TI part
                         result = ast_optimize(expr.expression);
                         
                         var nprocedure = {type: 'function', name: expr.name, value: "(", position: expr.position, arguments: [], mode: "backtick"};
-                        nprocedure.procedure = result.steps[0];
+                        nprocedure.procedure = result.type == "variable" ? result : result.steps[0];
                         nprocedure.procedure.type = "variable";
 
                         if (nprocedure.procedure.predicate !== undefined) {
@@ -1464,6 +1442,7 @@ const parser = (() => {
                     result.arguments = expr.arguments.map(function (arg) {
                         return ast_optimize(arg);
                     });
+                    // Ti part - eja lib bind
                     var nprocedure = ast_optimize(expr.procedure);
                     if (expr.procedure.mode === 'lib') {
                         result.procedure = expr.procedure;
@@ -1471,7 +1450,6 @@ const parser = (() => {
                     } else {
                         result.procedure = nprocedure;
                     }
-                    // result.procedure = ast_optimize(expr.procedure);
                     break;
                 case 'lambda':
                     result = {
@@ -1480,6 +1458,7 @@ const parser = (() => {
                         signature: expr.signature,
                         position: expr.position
                     };
+                    // Ti part - eja lib bind
                     if (expr.procedure.mode === undefined || expr.procedure.mode !== 'lib') {
                         var body = ast_optimize(expr.body);
                         result.body = tail_call_optimize(body);
@@ -1519,7 +1498,7 @@ const parser = (() => {
                     // TODO scan the array of expressions to see if any of them assign variables
                     // if so, need to mark the block as one that needs to create a new frame
                     break;
-                case 'switch':
+                case 'switch': // TI part - switch
                     result = {type: expr.type, position: expr.position};
                     // switch expressions
                     result.expressions = expr.expressions.map(function (item) {
@@ -1560,9 +1539,9 @@ const parser = (() => {
                 case 'descendant':
                 case 'variable':
                 case 'regex':
-                case 'atom':
-                case 'comment':
-                case 'path':
+                case 'atom': // TI part
+                case 'comment': // TI part
+                case 'path': // TI part
                     result = expr;
                     break;
                 case 'operator':
@@ -1626,16 +1605,18 @@ const parser = (() => {
             };
             handleError(err);
         }
+        
+        if (utils.isBrowser) console.log("AST intermediate", expr);
+
         expr = ast_optimize(expr);
 
         if (errors.length > 0) {
             expr.errors = errors;
         }
-
-        // console.log("AST: ", expr);
         return expr;
     };
-
+    
+    // TI part
     var parse_array = function (el) {
         if (el.type !== undefined && el.type === "path") {
             return el.steps.map(parse_array);

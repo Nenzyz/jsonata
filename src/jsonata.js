@@ -99,9 +99,11 @@ var jsonata = (function() {
                 result = yield * evaluateFunction(expr, input, environment);
                 break;
             case 'variable':
+                // TI part - association separation from variable
                 if (expr.steps === undefined) {
                     result = evaluateVariable(expr, input, environment);                
                 } else {
+                    Object.assign(expr, {mode: "lib"});
                     result = yield * evaluateFunction(expr, input, environment);
                 }
                 break;
@@ -113,9 +115,6 @@ var jsonata = (function() {
                 break;
             case 'apply':
                 result = yield * evaluateApplyExpression(expr, input, environment);
-                break;
-            case 'sort':
-                result = yield * evaluateSortExpression(expr, input, environment);
                 break;
             case 'transform':
                 result = evaluateTransformExpression(expr, input, environment);
@@ -144,11 +143,6 @@ var jsonata = (function() {
         if (expr.hasOwnProperty('predicate')) {
             for(var ii = 0; ii < expr.predicate.length; ii++) {
                 result = yield * evaluateFilter(expr.predicate[ii].expr, result, environment);
-            }
-        }
-        if (expr.hasOwnProperty('stages')) {
-            for(var ii = 0; ii < expr.stages.length; ii++) {
-                result = yield * evaluateFilter(expr.stages[ii].expr, result, environment);
             }
         }
 
@@ -220,6 +214,7 @@ var jsonata = (function() {
     }
 
     /**
+     * // TI part - a whole change part
      * Evaluate change path expression against input data
      * @param {Object} expr - JSONata expression
      * @param {Object} input - Input data to evaluate against
@@ -227,168 +222,47 @@ var jsonata = (function() {
      * @returns {*} Evaluated input data
      */
     function* evaluateChange(expr, input, environment) {
-        // console.log(" evaluateChange: ", input);
-        // var walkin = (path, obj) => {
-        //     switch (path) {
-
-        //     }
-        // }
-        // function walk (obj, el) {
-        //     if (obj === undefined || el === undefined) {
-        //         return {object: obj, path: el};
-        //     }
-        //     console.log("  Walk: ", [obj, el]);
-        //     if (el.type !== undefined) {
-        //         var ph1 = {object: obj, path: el};
-        //         console.log(" walk: ", [el.type, el.value]);
-        //         switch(el.type) {
-        //             case "variable":
-        //                 var var_v;
-        //                 if (el.value !== "$") {
-        //                     var_v = environment.lookup(el.value);
-        //                 } else {
-        //                     var_v = input;
-        //                 }
-        //                 if (typeof var_v === "number" && Array.isArray(obj)) {
-        //                     if (var_v < obj.length) {
-        //                         ph1.object = obj[var_v];
-        //                     } else {
-        //                         ph1.object = undefined;
-        //                     }
-        //                 } else if (typeof var_v === "string" && typeof obj === "object") {
-        //                     if (obj.hasOwnProperty(var_v)) {
-        //                         ph1.object = obj[var_v];
-        //                     } else {
-        //                         ph1.object = undefined;
-        //                     }
-        //                 }
-        //                 break;
-        //             case "path":
-        //                 var result = el.steps.reduce(
-        //                     function (_obj, el) { var some = walk(_obj, el); return some; }, 
-        //                     obj
-        //                 );
-        //                 ph1.object = result;
-        //                 break;
-        //             case "name":
-        //                 if (Array.isArray(obj)) {
-        //                     // looking for name but found 'array' at location
-        //                     //  first assign the empty object, then assign a value
-        //                     ph1.object = undefined;
-        //                     break;
-        //                 } else if (typeof obj === "object") {
-        //                     if (obj.hasOwnProperty(el.value)) {
-        //                         ph1.object = obj[el.value];
-        //                     } else {
-        //                         // creating a new object
-        //                         ph1.object = undefined;
-        //                     }
-        //                     break;
-        //                 } else {
-        //                     ph1.object = undefined;
-        //                     break;
-        //                 }
-        //                 break;
-        //             case "number":
-        //                 if (Array.isArray(obj) && el.value < obj.length) {
-        //                     // looking for name but found 'array' at location
-        //                     ph1.object = obj[el.value];
-        //                     break;
-        //                 } else if (Array.isArray(obj) && el.value < obj.length) {
-        //                     ph1.object = undefined;
-        //                 } else if (typeof obj === "object") {
-        //                     // non-array element
-        //                     //  first assign the empty array, then push a value
-        //                     ph1.object = undefined;
-        //                     break;
-        //                 } else {
-        //                     ph1.object = undefined;
-        //                     break;
-        //                 }
-        //                 break;
-        //             default:
-        //                 console.log("      Unknown: ", [obj, el]);
-        //                 break;
-        //         }
-        //         if (el.predicate !== undefined) {
-        //             return el.predicate.reduce(
-        //                 function (_obj, el) { return walk(_obj, el); },
-        //                 ph1.object
-        //             );
-        //         } else {
-        //             return ph1;
-        //         }
-        //     } else {
-        //         return {object: obj, path: el};
-        //     }
-        // }
-        
-        var parse = function(el) {
-            if (el.type !== undefined && el.type === "path") {
-                return el.steps.map(parse).join(".");
-            }
-
-            var output = el.value;
-            if (el.value !== undefined && el.value === "$") {
-                output = "input";
-            }
-
-            if (el.predicate !== undefined && el.predicate[0] !== undefined) {
-                output = output + "[" + el.predicate[0].value + "]";
-            }
-            if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
-                output = output + "[" + el.stages[0].value + "]";
-            }else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
-                output = output + "[" + el.stages[0].expr.value + "]";
-            }
-
-            var rest = "";
-            if (el.steps !== undefined) {
-                rest = el.steps.map(parse).join(".");
-            }
-
-            if (rest !== "") {
-                return output + "." + rest;
-            }
-
-            return output;
-        };
-
+        delete environment.missing_parent;
         var path;
         var value;
+        var mode;
         if (expr.value === "~X") {
             path = expr.expression;
+            mode = "delete";
         } else if (expr.value === "<~") {
             path = expr.lhs;
             value = expr.rhs;
+            mode = "change";
         } else if (expr.value === "~>") {
             path = expr.rhs;
             value = expr.lhs;
+            mode = "change";
         } else {
-            console.error("Wrong value: ", expr.value);
+            if(utils.isBrowser) console.error("Wrong value: ", expr.value);
         }
+        var value_value
+        if(mode != "delete") value_value = yield * evaluate(value, input, environment);
 
-        var parsed_path = parse(path);
-        parsed_path = parsed_path.indexOf("input") !== 0 ? "input." + parsed_path : parsed_path ;
-        var result;
-        var value_value;
-        // NB: TI: manipulate-filter-last like this '$$.documents[id = 1] ~X' or '$$.documents[id = 1] <~ {}' dont work
-        if (expr.value === "~X") {
-            if (parsed_path == "input.") {
-                input = undefined;
+        environment.walk_mode = mode;
+        if(path.value != "$") {
+            var path_path = yield * evaluate(path, input, environment);
+
+            // path_value should be an object consist of parent and a selector for deletion or last step for insertion
+            if (Array.isArray(environment.missing_parent)) {
+                if (mode == "delete") {
+                    environment.missing_parent.forEach(ipar => {
+                        delete ipar.p[ipar.i];
+                    });
+                } else {
+                    environment.missing_parent.forEach(ipar => {
+                        ipar.p[ipar.i] = value_value;
+                    });
+                }
             } else {
-                var applicator = "delete " + parsed_path;
-                // console.log("eval:", applicator);
-                eval(applicator);    
-            }
+                if(utils.isBrowser) console.warn("No parent/index given for operation", expr);
+            }    
         } else {
-            // global change like $$ <~ <value> doesn't work since it replaces and loses original object
-            //   instead it should replace each of its keys, this works on a global level
-
-            // create missing for '$$.documents[id=1].name <~ <value>' should work only for already existing filtered items, otherwise don't know how to create those
-
-            value_value = yield * evaluate(value, input, environment);
-            if ( parsed_path === "input" ) {
+            if(mode != "delete" && typeof value_value == "object" && !Array.isArray(value_value)) {
                 var v_keys = Object.keys(value_value);
                 var i_keys = Object.keys(input);
 
@@ -400,37 +274,34 @@ var jsonata = (function() {
                     if (input[el] === undefined) input[el] = value_value[el];
                 });
             } else {
-                var parsed_path_array = value.parsed_parent || [];
-                if (parsed_path_array.length > 0) create_missing(parsed_path_array);
-
-                var applicator = parsed_path + " = " + JSON.stringify(value_value);
-                // console.log("eval:", applicator);
-                eval(applicator);
+                if(utils.isBrowser) console.error("Impossible to manipulate root");
             }
         }
+        delete environment.walk_mode;
+        delete environment.missing_parent;
+
+        // var remove_null = el => {
+        //     switch (typeof el) {
+        //         case 'object':
+        //             if(Array.isArray(el)) {
+        //                 el.forEach((el1, eli) => {
+        //                     if(!el1) delete el[eli];
+        //                 });
+        //             }else{
+        //                 Object.keys(el).forEach(el1 => {
+        //                     remove_null(el[el1]);
+        //                 });
+        //             }
+        //             break;
+        //         default:
+        //             break;
+        //     }
+        //     return 
+        // };
+        // remove_null(input);
+        
         return input;
-    }
-
-    function create_missing(obj, list) {
-        // console.log("create missing:", list);
-
-        if (obj == undefined) obj = {};
-        var el = list[0] || "";
-        if (typeof el != "number" && obj[el] === undefined) {
-            obj[el] = {};
-            if (list.length > 1 && Array.isArray(list)) {
-                list.shift();
-                obj[el] = create_missing(obj[el], list);
-            }
-        } else if (typeof el == "number" && !Array.isArray(obj)) {
-            obj = [];
-            if (list.length > 1 && Array.isArray(list)) {
-                list.shift();
-                obj[el] = create_missing(obj[el], list);
-            }
-        };
-        return obj;
-    };
+    } 
 
     /**
      * Evaluate path expression against input data
@@ -444,14 +315,20 @@ var jsonata = (function() {
         // expr is an array of steps
         // if the first step is a variable reference ($...), including root reference ($$),
         //   then the path is absolute rather than relative
-        if (expr.steps[0].type === 'variable') {
-            inputSequence = createSequence(input);  // dummy singleton sequence for first (absolute) step
-        } else if (Array.isArray(input)) {
+        // TI part - walking by non-existing path and creating it (change functionality)
+        const isWalker = environment.walk_mode == "change";
+        const isDelete = environment.walk_mode == "delete";
+        if (Array.isArray(input) && expr.steps[0].type !== 'variable') {
             inputSequence = input;
         } else {
             // if input is not an array, make it so
             inputSequence = createSequence(input);
         }
+        if((isWalker || isDelete) && !Array.isArray(environment.missing_parent)) {
+            environment.missing_parent = [];
+            inputSequence.forEach(el => environment.missing_parent.push({r:el}));
+        }
+        // TI part.
 
         var resultSequence;
         var isTupleStream = false;
@@ -461,8 +338,6 @@ var jsonata = (function() {
         for(var ii = 0; ii < expr.steps.length; ii++) {
             var step = expr.steps[ii];
 
-            // NB: TI: walking by non-existing path and creating it (change functionality)
-            if(step.create_missing && step.value != "$") inputSequence[0][step.value] = inputSequence[0][step.value] || {};
             if(step.tuple) {
                 isTupleStream = true;
             }
@@ -504,7 +379,6 @@ var jsonata = (function() {
         if (expr.hasOwnProperty('group')) {
             resultSequence = yield* evaluateGroupExpression(expr.group, isTupleStream ? tupleBindings : resultSequence, environment)
         }
-
         return resultSequence;
     }
 
@@ -526,6 +400,42 @@ var jsonata = (function() {
      */
     function* evaluateStep(expr, input, environment, lastStep) {
         var result;
+        // TI part - walking by non-existing name and creating it (change functionality)
+        const isWalker = environment.walk_mode == "change" && expr.value != "$";
+        const isDelete = environment.walk_mode == "delete";
+        if(isWalker || isDelete){
+            var step_value;
+            if(!step_value) {
+                switch (expr.type) {
+                    case 'name':
+                        step_value = expr.value;
+                        break;
+                    case 'variable':
+                        step_value = evaluateVariable(expr, input, environment);
+                        break;
+                    case 'path': // association
+                        if (expr.steps && expr.steps[0] && expr.steps[0].mode == 'backtick'){
+                            var walk_mode = environment.walk_mode;
+                            delete environment.walk_mode;
+                            Object.assign(expr, {mode: "lib"});
+                            step_value = yield* evaluate(expr, input, environment);
+                            environment.walk_mode = walk_mode;
+                            if(typeof step_value != "string") step_value = undefined;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        if(isWalker){
+            environment.missing_parent.forEach((el, i) => {
+                if(step_value) {
+                    if(el.r === input[i] && !el.r[step_value]) el.r[step_value] = {};
+                }
+            });
+        }
+        // TI part.
         if(expr.type === 'sort') {
              result = yield* evaluateSortExpression(expr, input, environment);
              if(expr.stages) {
@@ -538,6 +448,7 @@ var jsonata = (function() {
 
         for(var ii = 0; ii < input.length; ii++) {
             var res = yield * evaluate(expr, input[ii], environment);
+            if(isWalker || isDelete) environment.missing_parent.push({p:input[ii], i:step_value, r: input[ii][step_value]}); // TI part
             if(expr.stages) {
                 for(var ss = 0; ss < expr.stages.length; ss++) {
                     res = yield* evaluateFilter(expr.stages[ss].expr, res, environment);
@@ -564,6 +475,11 @@ var jsonata = (function() {
             });
         }
 
+        // TI part - ...
+        if(isWalker || isDelete) {
+            environment.missing_parent = environment.missing_parent.filter(el => resultSequence.indexOf(el.r) != -1);
+        }
+        // TI part.
         return resultSequence;
     }
 
@@ -619,7 +535,7 @@ var jsonata = (function() {
         result.tupleStream = true;
         var stepEnv = environment;
         if(tupleBindings === undefined) {
-            tupleBindings = [{'@': input}];
+            tupleBindings = input.map(item => { return {'@': item} });
         }
 
         for(var ee = 0; ee < tupleBindings.length; ee++) {
@@ -663,6 +579,57 @@ var jsonata = (function() {
      */
     function* evaluateFilter(predicate, input, environment) {
         var results = createSequence();
+        // TI part - walking by non-existing filter and creating it (change functionality)
+        const isWalker = environment.walk_mode == "change";
+        const isDelete = environment.walk_mode == "delete";
+        if((isWalker || isDelete) && ['number', 'variable', 'path'].indexOf(predicate.type) != -1) {
+            var predicate_value;
+            if(!predicate_value) {
+                switch (predicate.type) {
+                    case 'number':
+                        predicate_value = predicate.value;
+                        break;
+                    case 'variable':
+                        predicate_value = evaluateVariable(predicate, input, environment);
+                        break;
+                    case 'path': // association
+                        if (predicate.steps && predicate.steps[0] && predicate.steps[0].mode == 'backtick'){
+                            var walk_mode = environment.walk_mode;
+                            delete environment.walk_mode;
+                            Object.assign(predicate, {mode: "lib"});
+                            predicate_value = yield* evaluate(predicate, input, environment);
+                            environment.walk_mode = walk_mode;
+                            if(typeof predicate_value != "number") predicate_value = undefined;
+                        };
+                        break;
+                    default:
+                        break;
+                };
+            }
+        }
+        if(isWalker){
+            environment.missing_parent.forEach(el => {
+                if(predicate_value) {
+                    if(el.r === input) {
+                        if(!Array.isArray(input)) {
+                            el.p[el.i] = [];
+                            el.r = el.p[el.i];
+                            input = el.r;
+                            input[predicate_value] = {};
+                        }
+                    }else if(Array.isArray(input) && input.indexOf(el.r) != -1) {
+                        var inin = input.indexOf(el.r);
+                        if(!Array.isArray(input[inin])) {
+                            el.p[el.i] = [];
+                            el.r = el.p[el.i];
+                            input = el.r;
+                            input[predicate_value] = {};
+                        }
+                    }
+                }
+            });
+        }
+        // TI part.
         if( input && input.tupleStream) {
             results.tupleStream = true;
         }
@@ -670,13 +637,14 @@ var jsonata = (function() {
             input = createSequence(input);
         }
         if (predicate.type === 'number') {
-            var index = Math.floor(predicate.value);  // round it down
+            var index = Math.floor(predicate_value || predicate.value);  // round it down // TI part
             if (index < 0) {
                 // count in from end of array
                 index = input.length + index;
             }
             var item = input[index];
             if(typeof item !== 'undefined') {
+                if(isWalker || isDelete) environment.missing_parent.push({p:input, i:index, r:item}); // TI part
                 if(Array.isArray(item)) {
                     results = item;
                 } else {
@@ -686,6 +654,7 @@ var jsonata = (function() {
         } else {
             for (index = 0; index < input.length; index++) {
                 var item = input[index];
+                if(!item) continue; // TI part
                 var context = item;
                 var env = environment;
                 if(input.tupleStream) {
@@ -705,10 +674,12 @@ var jsonata = (function() {
                             ii = input.length + ii;
                         }
                         if (ii === index) {
+                            if(isWalker || isDelete) environment.missing_parent.push({p:input, i:index, r:item}); // TI part
                             results.push(item);
                         }
                     });
                 } else if (fn.boolean(res)) { // truthy
+                    if(isWalker || isDelete) environment.missing_parent.push({p:input, i:index, r:item}); // TI part
                     results.push(item);
                 }
             }
@@ -1672,7 +1643,9 @@ var jsonata = (function() {
         }
 
         // NB: TI: change proc input to local input only for association function
-        if (proc != undefined) proc.input = input;
+        // TI part - proc.input changes to general input for association function
+        //  && expr.mode == "backtick"
+        if (typeof proc == 'object') proc.input = input;
         var evaluatedArgs = [];
         if(typeof applyto !== 'undefined') {
             evaluatedArgs.push(applyto.context);
@@ -2081,7 +2054,9 @@ var jsonata = (function() {
      */
     function createFrame(enclosingEnvironment) {
         var bindings = {};
+        var walk_mode = enclosingEnvironment == undefined ? [] : enclosingEnvironment.walk_mode || []; // TI part
         return {
+            walk_mode: walk_mode, // TI part
             bind: function (name, value) {
                 bindings[name] = value;
             },
@@ -2144,11 +2119,12 @@ var jsonata = (function() {
     staticFrame.bind('append', defineFunction(fn.append, '<xx:a>'));
     staticFrame.bind('exists', defineFunction(fn.exists, '<x:b>'));
     staticFrame.bind('spread', defineFunction(fn.spread, '<x-:a<o>>'));
-    staticFrame.bind('merge', defineFunction(fn.merge, '<a<o>:o>'));
+    staticFrame.bind('merge', defineFunction(fn.merge, '<a<o>o?o?:o>')); // TI part - $merge() can be 3 parameters
     staticFrame.bind('reverse', defineFunction(fn.reverse, '<a:a>'));
     staticFrame.bind('each', defineFunction(fn.each, '<o-f:a>'));
     staticFrame.bind('error', defineFunction(fn.error, '<s?:x>'));
     staticFrame.bind('assert', defineFunction(fn.assert, '<bs?:x>'));
+    staticFrame.bind('type', defineFunction(fn.type, '<x:s>'));
     staticFrame.bind('sort', defineFunction(fn.sort, '<af?:a>'));
     staticFrame.bind('shuffle', defineFunction(fn.shuffle, '<a:a>'));
     staticFrame.bind('distinct', defineFunction(fn.distinct, '<x:x>'));
@@ -2314,7 +2290,7 @@ var jsonata = (function() {
             ast = parser(expr, options && options.recover);
             errors = ast.errors;
             delete ast.errors;
-            // console.log("AST", ast);
+            if (utils.isBrowser) console.log("AST", ast); // TI part
         } catch(err) {
             // insert error message into structure
             populateMessage(err); // possible side-effects on `err`

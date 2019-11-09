@@ -1758,8 +1758,8 @@ const functions = (() => {
         if (argA === undefined) argA = {};
         if (!Array.isArray(arg)) {
             arg = [arg];
-            arg = Array.concat(arg, argA);
         }
+        arg = arg.concat(argA);
         arg.forEach(function (obj) {
             for (var prop in obj) {
                 result[prop] = obj[prop];
@@ -1843,6 +1843,43 @@ const functions = (() => {
         }
 
         return undefined;
+    }
+
+    /**
+     *
+     * @param {*} [value] - the input to which the type will be checked
+     * @returns {string} - the type of the input
+     */
+    function type(value) {
+        if (value === undefined) {
+            return undefined;
+        }
+
+        if (value === null) {
+            return 'null';
+        }
+
+        if (isNumeric(value)) {
+            return 'number';
+        }
+
+        if (typeof value === 'string') {
+            return 'string';
+        }
+
+        if (typeof value === 'boolean') {
+            return 'boolean';
+        }
+
+        if(Array.isArray(value)) {
+            return 'array';
+        }
+
+        if(isFunction(value)) {
+            return 'function';
+        }
+
+        return 'object';
     }
 
     /**
@@ -2040,7 +2077,7 @@ const functions = (() => {
         keys, lookup, append, exists, spread, merge, reverse, each, sort, shuffle,
         base64encode, base64decode,
         map, zip, filter, single, foldLeft, sift,
-        keys, lookup, append, exists, spread, merge, reverse, each, error, assert, sort, shuffle, distinct,
+        keys, lookup, append, exists, spread, merge, reverse, each, error, assert, type, sort, shuffle, distinct,
         base64encode, base64decode,  encodeUrlComponent, encodeUrl, decodeUrlComponent, decodeUrl
         // NB: TI: erlang specific procedures
         , blog, slog 
