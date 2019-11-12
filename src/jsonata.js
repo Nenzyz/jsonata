@@ -401,7 +401,7 @@ var jsonata = (function() {
     function* evaluateStep(expr, input, environment, lastStep) {
         var result;
         // TI part - walking by non-existing name and creating it (change functionality)
-        const isWalker = environment.walk_mode == "change" && expr.value != "$";
+        const isWalker = environment.walk_mode == "change";
         const isDelete = environment.walk_mode == "delete";
         if(isWalker || isDelete){
             var step_value;
@@ -428,7 +428,7 @@ var jsonata = (function() {
                 }
             }
         }
-        if(isWalker){
+        if(isWalker && expr.value != "$"){
             environment.missing_parent.forEach((el, i) => {
                 if(step_value) {
                     if(el.r === input[i] && !el.r[step_value]) el.r[step_value] = {};
@@ -477,7 +477,7 @@ var jsonata = (function() {
 
         // TI part - ...
         if(isWalker || isDelete) {
-            environment.missing_parent = environment.missing_parent.filter(el => resultSequence.indexOf(el.r) != -1);
+            environment.missing_parent = environment.missing_parent.filter(el => resultSequence.indexOf(el.r) != -1 || resultSequence === el.r);
         }
         // TI part.
         return resultSequence;
