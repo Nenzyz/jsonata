@@ -48,11 +48,6 @@ var jsonata = (function() {
      */
     function* evaluate(expr, input, environment) {
         var result;
-        if (grandResult === undefined) {
-            var grandResult = [];
-        } else {
-            grandResult = [];
-        }
 
         var entryCallback = environment.lookup('__evaluate_entry');
         if(entryCallback) {
@@ -82,6 +77,9 @@ var jsonata = (function() {
                 break;
             case 'descendant':
                 result = evaluateDescendants(expr, input, environment);
+                break;
+            case 'parent':
+                result = environment.lookup(expr.slot.label);
                 break;
             case 'condition':
                 result = yield * evaluateCondition(expr, input, environment);
@@ -119,6 +117,7 @@ var jsonata = (function() {
             case 'transform':
                 result = evaluateTransformExpression(expr, input, environment);
                 break;
+            // TI part
             case 'change':
                 input = yield * evaluateChange(expr, input, environment);
                 result = input;
@@ -140,13 +139,13 @@ var jsonata = (function() {
             result = yield result;
         }
 
-        if (expr.hasOwnProperty('predicate')) {
+        if (Object.prototype.hasOwnProperty.call(expr, 'predicate')) {
             for(var ii = 0; ii < expr.predicate.length; ii++) {
                 result = yield * evaluateFilter(expr.predicate[ii].expr, result, environment);
             }
         }
 
-        if (expr.type !== 'path' && expr.hasOwnProperty('group')) {
+        if (expr.type !== 'path' && Object.prototype.hasOwnProperty.call(expr, 'group')) {
             result = yield * evaluateGroupExpression(expr.group, result, environment);
         }
 
@@ -155,7 +154,7 @@ var jsonata = (function() {
             exitCallback(expr, input, environment, result);
         }
 
-        if(result && isSequence(result)) {
+        if(result && isSequence(result) && !result.tupleStream) {
             if(expr.keepArray) {
                 result.keepSingleton = true;
             }
@@ -352,7 +351,7 @@ var jsonata = (function() {
                     resultSequence = yield * evaluateStep(step, inputSequence, environment, ii === expr.steps.length - 1);
                 }
             }
-
+            // TI part
             // NB: create_missing should be used in order to identify that that path processed is just a walking
             //   but this was done in another place
             if (!isTupleStream && (typeof resultSequence === 'undefined' || resultSequence.length === 0)) {
@@ -366,19 +365,28 @@ var jsonata = (function() {
         }
 
         if(isTupleStream) {
-            resultSequence = createSequence();
-            for(ii = 0; ii < tupleBindings.length; ii++) {
-                resultSequence.push(tupleBindings[ii]['@']);
+            if(expr.tuple) {
+                // tuple stream is carrying ancestry information - keep this
+                resultSequence = tupleBindings;
+            } else {
+                resultSequence = createSequence();
+                for (ii = 0; ii < tupleBindings.length; ii++) {
+                    resultSequence.push(tupleBindings[ii]['@']);
+                }
             }
         }
 
         if(expr.keepSingletonArray) {
+            if(!isSequence(resultSequence)) {
+                resultSequence = createSequence(resultSequence);
+            }
             resultSequence.keepSingleton = true;
         }
 
         if (expr.hasOwnProperty('group')) {
             resultSequence = yield* evaluateGroupExpression(expr.group, isTupleStream ? tupleBindings : resultSequence, environment)
         }
+
         return resultSequence;
     }
 
@@ -549,14 +557,21 @@ var jsonata = (function() {
                 for (var bb = 0; bb < res.length; bb++) {
                     tuple = {};
                     Object.assign(tuple, tupleBindings[ee]);
-                    if (expr.focus) {
-                        tuple[expr.focus] = res[bb];
-                        tuple['@'] = input;
+                    if(res.tupleStream) {
+                        Object.assign(tuple, res[bb]);
                     } else {
-                        tuple['@'] = res[bb];
-                    }
-                    if(expr.index) {
-                        tuple[expr.index] = bb;
+                        if (expr.focus) {
+                            tuple[expr.focus] = res[bb];
+                            tuple['@'] = tupleBindings[ee]['@'];
+                        } else {
+                            tuple['@'] = res[bb];
+                        }
+                        if (expr.index) {
+                            tuple[expr.index] = bb;
+                        }
+                        if (expr.ancestor) {
+                            tuple[expr.ancestor.label] = tupleBindings[ee]['@'];
+                        }
                     }
                     result.push(tuple);
                 }
@@ -732,6 +747,7 @@ var jsonata = (function() {
                 case 'in':
                     result = evaluateIncludesExpression(lhs, rhs);
                     break;
+                // TI part
                 case '||':
                     result = lhs || rhs;
                     break;
@@ -1560,7 +1576,9 @@ var jsonata = (function() {
                                 };
                             }
                             for (var jj = 0; jj < deletions.length; jj++) {
-                                delete match[deletions[jj]];
+                                if(typeof match === 'object' && match !== null) {
+                                    delete match[deletions[jj]];
+                                }
                             }
                         }
                     }
@@ -2070,7 +2088,10 @@ var jsonata = (function() {
                 return value;
             },
             timestamp: enclosingEnvironment ? enclosingEnvironment.timestamp : null,
-            async: enclosingEnvironment ? enclosingEnvironment.async : false
+            async: enclosingEnvironment ? enclosingEnvironment.async : false,
+            global: enclosingEnvironment ? enclosingEnvironment.global : {
+                ancestry: [ null ]
+            }
         };
     }
 
@@ -2098,7 +2119,7 @@ var jsonata = (function() {
     staticFrame.bind('formatBase', defineFunction(fn.formatBase, '<n-n?:s>'));
     staticFrame.bind('formatInteger', defineFunction(datetime.formatInteger, '<n-s:s>'));
     staticFrame.bind('parseInteger', defineFunction(datetime.parseInteger, '<s-s:n>'));
-    staticFrame.bind('number', defineFunction(fn.number, '<(nsb)-:n>'));
+    staticFrame.bind('number', defineFunction(fn.number, '<(nsbx)-:n>')); // TI part - can be path as well
     staticFrame.bind('floor', defineFunction(fn.floor, '<n-:n>'));
     staticFrame.bind('ceil', defineFunction(fn.ceil, '<n-:n>'));
     staticFrame.bind('round', defineFunction(fn.round, '<n-n?:n>'));
@@ -2138,8 +2159,8 @@ var jsonata = (function() {
     staticFrame.bind('toMillis', defineFunction(datetime.toMillis, '<s-s?:n>'));
     staticFrame.bind('fromMillis', defineFunction(datetime.fromMillis, '<n-s?s?:s>'));
     staticFrame.bind('clone', defineFunction(functionClone, '<(oa)-:o>'));
-    staticFrame.bind('blog', defineFunction(fn.blog, '<s:s>'));
-    staticFrame.bind('slog', defineFunction(fn.slog, '<s:s>'));
+    staticFrame.bind('blog', defineFunction(fn.blog, '<s:s>')); // TI part
+    staticFrame.bind('slog', defineFunction(fn.slog, '<s:s>')); // TI part
 
     /**
      * Error codes
@@ -2178,6 +2199,7 @@ var jsonata = (function() {
         "S0214": "The right side of {{token}} must be a variable name (start with $)",
         "S0215": "A context variable binding must precede any predicates on a step",
         "S0216": "A context variable binding must precede the 'order-by' clause on a step",
+        "S0217": "The object representing the 'parent' cannot be derived from this expression",
         "S0301": "Empty regular expressions are not allowed",
         "S0302": "No terminating / in regular expression",
         "S0402": "Choice groups containing parameterized types are not supported",
@@ -2239,7 +2261,7 @@ var jsonata = (function() {
         "D3110": "The argument of the toMillis function must be an ISO 8601 formatted timestamp. Given {{value}}",
         "D3120": "Syntax error in expression passed to function eval: {{value}}",
         "D3121": "Dynamic error evaluating the expression passed to function eval: {{value}}",
-        "D3130": "Formatting an integer as a sequence starting with {{value}} is not supported by this implementation",
+        "D3130": "Formatting or parsing an integer as a sequence starting with {{value}} is not supported by this implementation",
         "D3131": "In a decimal digit pattern, all digits must be from the same decimal group",
         "D3132": "Unknown component specifier {{value}} in date/time picture string",
         "D3133": "The 'name' modifier can only be applied to months and days in the date/time picture string, not {{value}}",
@@ -2307,7 +2329,7 @@ var jsonata = (function() {
         }, '<:n>'));
 
         return {
-            environment: environment,
+            environment: environment, // TI part, export environment for binding
             evaluate: function (input, bindings, callback) {
                 // throw if the expression compiled with syntax errors
                 if(typeof errors !== 'undefined') {

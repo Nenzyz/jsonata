@@ -644,7 +644,7 @@ const dateTime = (function () {
         // the week starts on a Monday - calculate the millis for the start of the first week
         // millis for given 1st Jan of that year (at 00:00 UTC)
         const jan1 = Date.UTC(ym.year, ym.month);
-        var dayOfJan1 = (new Date(jan1)).getDay();
+        var dayOfJan1 = (new Date(jan1)).getUTCDay();
         if (dayOfJan1 === 0) {
             dayOfJan1 = 7;
         }
@@ -1029,6 +1029,12 @@ const dateTime = (function () {
                             digits = digits.split('').map(char => String.fromCodePoint(char.codePointAt(0) - formatSpec.zeroCode + 0x30)).join('');
                         }
                         return parseInt(digits);
+                    };
+                    break;
+                case formats.SEQUENCE:
+                    throw {
+                        code: 'D3130',
+                        value: formatSpec.token
                     };
             }
 
