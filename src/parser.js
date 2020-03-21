@@ -404,47 +404,37 @@ const parser = (() => {
                 if (end !== -1) {
                     name = path.substring(position, end);
                     // TI parts - Special case for `template strings` of JavaScript
-                    if (name.indexOf("${", position) != -1) {
-                        var neo_name = `\`${name}\``.replace(/\${([^}]+)}/g, "` %separator% ( $1 ) %separator% `");
+                    //   no nesting templated are allowed, an least for now
+                    // TODO: this is a VERY dirty hack for syntactic sugar
+                    // TODO: different quotes should be avoided used in between strings 
+                    //    i.e. `some ‘asd’ ${…} "asdasd" ‘asdas’ ${…}` 
+                    //    such expression will not be able to process since part between two substitutions is used
+                    //    "some 'asd'" & ( ${…} ) & "asdasd" 'asdas' & ( ${…}` ) & ""
+                    //    this part `"asdasd" 'asdas'` can't be quoted correctly 
+                    if (name.match(/(\${[^}]+})+/) != undefined) {
+                        var before_path = path.slice(0, position - 1);
+                        var after_path = path.slice(end + 1);
 
-                        var neo_parts = [];
-                        neo_name.split(" %separator% ").forEach(
-                            function(i){
-                                if(i[0] == "`") {
-                                    var clear_i = i.substr(1, i.length - 2);
-                                    var qqindx = clear_i.indexOf('"');
-                                    var qindx = clear_i.indexOf("'");
-                                    if (qqindx != -1 || qindx != -1) {
-                                        if(qqindx != -1 && qindx != -1 && qqindx > qindx) {
-                                            clear_i = `"${clear_i}"`;
-                                        }
-                                        if(qqindx != -1 && qindx != -1 && qqindx < qindx) {
-                                            clear_i = `'${clear_i}'`;
-                                        }
-                                    } if (qqindx != -1) {
-                                        clear_i = `'${clear_i}'`;
-                                    // } if (qindx != -1) {
-                                    //     clear_i = `"${clear_i}"`;
-                                    } else {
-                                        clear_i = `"${clear_i}"`;
-                                    }
-                                    neo_parts.push(clear_i);
-                                }else{
-                                    neo_parts.push(i);
-                                }
+                        var iterations = name.split(/(\${[^}]+})+/g);
+                        var iter_out = [];
+                        iterations.forEach(el => {
+                            if (el.substring(0,2) == "${" && el.slice(-1) == "}") {
+                                iter_out.push(`& ( ${el.slice(2, el.length - 1)} ) &`);
+                            } else {
+                                var qchar = 
+                                    (el.indexOf('"') == -1) ||
+                                    (el.indexOf('"') >= el.indexOf("'") && el.indexOf('"') != -1 && el.indexOf("'") != -1) || 
+                                    (el.indexOf("'") != -1) 
+                                    ? '"' : "'";
+                                iter_out.push(`${qchar}${el}${qchar}`);
                             }
-                        );
-
-                        neo_name = neo_parts.join(" & ");
-
-                        path = path.replace(`\`${name}\``, neo_name);
+                        });
+                        path = "".concat(before_path, `${iter_out.join("")}`, after_path);
                         length = path.length;
-                        
-                        var tname = neo_parts[0].substr(1, neo_parts[0].length - 2);
-                        if (tname.length != name.length) {
-                            position = position + tname.length + 1;
-                            return create('string', tname);
-                        }
+                        end = path.indexOf(iter_out[0][0], position); // looking for a quote that is first char in first element
+                        name = path.substring(position, end);
+                        position = end + 1;
+                        return create('string', name);
                     }
                     position = end + 1;
                     return create('name', name);
