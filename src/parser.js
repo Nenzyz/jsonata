@@ -406,7 +406,7 @@ const parser = (() => {
                     // TI parts - Special case for `template strings` of JavaScript
                     //   no nesting templated are allowed, an least for now
                     // TODO: this is a VERY dirty hack for syntactic sugar
-                    // TODO: different quotes should be avoided used in between strings 
+                    // TODO: different quotes should be avoided used in between substitutions 
                     //    i.e. `some ‘asd’ ${…} "asdasd" ‘asdas’ ${…}` 
                     //    such expression will not be able to process since part between two substitutions is used
                     //    "some 'asd'" & ( ${…} ) & "asdasd" 'asdas' & ( ${…}` ) & ""
@@ -758,6 +758,7 @@ const parser = (() => {
         terminal("or"); //
         terminal("in"); //
         prefix("-"); // unary numeric negation
+        prefix("!"); // negative
         infix("~>"); // function application / path setup
         // TI parts - ...
         // prefix(":"); // tuple
@@ -1520,7 +1521,9 @@ const parser = (() => {
                     break;
                 case 'unary':
                     result = {type: expr.type, value: expr.value, position: expr.position};
-                    if (expr.value === '[') {
+                    if (expr.value === '!') {
+                        result = {...result, type: "function", value: "(", arguments: [ processAST(expr.expression) ], procedure: {type: "variable", value: "not", position: expr.position}};
+                    } else if (expr.value === '[') {
                         // array constructor - process each item
                         result.expressions = expr.expressions.map(function (item) {
                             var value = processAST(item);
