@@ -10,6 +10,7 @@ __Signature:__ `$number(arg)`
 Casts the `arg` parameter to a number using the following casting rules
    - Numbers are unchanged
    - Strings that contain a sequence of characters that represent a legal JSON number are converted to that number
+   - Hexadecimal numbers start with `0x`, Octal numbers with `0o`, binary numbers with `0b`
    - Boolean `true` casts to `1`, Boolean `false` casts to `0`
    - All other values cause an error to be thrown.
 
@@ -17,6 +18,7 @@ If `arg` is not specified (i.e. this function is invoked with no arguments), the
 
 __Examples__  
 - `$number("5")` => `5`  
+- `$number("0x12")` => `0x18`  
 - `["1", "2", "3", "4", "5"].$number()` => `[1, 2, 3, 4, 5]`
 
 
@@ -29,7 +31,7 @@ If `number` is not specified (i.e. this function is invoked with no arguments), 
 
 __Examples__  
 - `$abs(5)` => `5`  
-- `$abs(-5)` => `-5`
+- `$abs(-5)` => `5`
 
 ## `$floor()`
 __Signature:__ `$floor(number)`
@@ -87,7 +89,7 @@ If `base` is not specified (i.e. this function is invoked with one argument), th
 An error is thrown if the values of `base` and `exponent` lead to a value that cannot be represented as a JSON number (e.g. Infinity, complex numbers).
 
 __Examples__  
-- `$power(2, 8)` => `8`  
+- `$power(2, 8)` => `256`  
 - `$power(2, 0.5)` => `1.414213562373`  
 - `$power(2, -2)` => `0.25`  
 

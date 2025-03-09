@@ -4,6 +4,8 @@
  *   This project is licensed under the MIT License, see LICENSE
  */
 
+const utils = require('./utils');
+
 /**
  * DateTime formatting and parsing functions
  * Implements the xpath-functions format-date-time specification
@@ -11,6 +13,8 @@
  */
 const dateTime = (function () {
     'use strict';
+
+    const stringToArray = utils.stringToArray;
 
     const few = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
         'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
@@ -270,7 +274,7 @@ const dateTime = (function () {
                     formattedInteger = padding + formattedInteger;
                 }
                 if (format.zeroCode !== 0x30) {
-                    formattedInteger = Array.from(formattedInteger).map(code => {
+                    formattedInteger = stringToArray(formattedInteger).map(code => {
                         return String.fromCodePoint(code.codePointAt(0) + format.zeroCode - 0x30);
                     }).join('');
                 }
@@ -371,7 +375,7 @@ const dateTime = (function () {
                 let optionalDigits = 0;
                 let groupingSeparators = [];
                 let separatorPosition = 0;
-                const formatCodepoints = Array.from(primaryFormat, c => c.codePointAt(0)).reverse(); // reverse the array to determine positions of grouping-separator-signs
+                const formatCodepoints = stringToArray(primaryFormat).map(c => c.codePointAt(0)).reverse(); // reverse the array to determine positions of grouping-separator-signs
                 formatCodepoints.forEach((codePoint) => {
                     // step though each char in the picture to determine the digit group
                     let digit = false;
@@ -621,6 +625,11 @@ const dateTime = (function () {
                             }
                         }
                     }
+                    // if the previous part is also an integer with no intervening markup, then its width for parsing must be precisely defined
+                    const previousPart = spec[spec.length - 1];
+                    if (previousPart && previousPart.integerFormat) {
+                        previousPart.integerFormat.parseWidth = previousPart.integerFormat.mandatoryDigits;
+                    }
                 }
                 if (def.component === 'Z' || def.component === 'z') {
                     def.integerFormat = analyseIntegerPicture(def.presentation1);
@@ -813,7 +822,7 @@ const dateTime = (function () {
         return componentValue;
     };
 
-    const iso8601Spec = analyseDateTimePicture('[Y0001]-[M01]-[D01]T[H01]:[m01]:[s01].[f001][Z01:01t]');
+    let iso8601Spec = null;
 
     /**
      * formats the date/time as specified by the XPath fn:format-dateTime function
@@ -900,6 +909,13 @@ const dateTime = (function () {
                 if (offset === 0 && markerSpec.presentation2 === 't') {
                     componentValue = 'Z';
                 }
+            } else if (markerSpec.component === 'P') {
+                // §9.8.4.7 Formatting Other Components
+                // Formatting P for am/pm
+                // getDateTimeFragment() always returns am/pm lower case so check for UPPER here
+                if (markerSpec.names === tcase.UPPER) {
+                    componentValue = componentValue.toUpperCase();
+                }
             }
             return componentValue;
         };
@@ -907,6 +923,9 @@ const dateTime = (function () {
         let formatSpec;
         if(typeof picture === 'undefined') {
             // default to ISO 8601 format
+            if (iso8601Spec === null) {
+                iso8601Spec = analyseDateTimePicture('[Y0001]-[M01]-[D01]T[H01]:[m01]:[s01].[f001][Z01:01t]');
+            }
             formatSpec = iso8601Spec;
         } else {
             formatSpec = analyseDateTimePicture(picture);
@@ -940,6 +959,41 @@ const dateTime = (function () {
                 var res = {};
                 if (part.type === 'literal') {
                     res.regex = part.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                } else if (part.component === 'Z' || part.component === 'z') {
+                    // timezone
+                    let separator;
+                    if (!Array.isArray(part.integerFormat.groupingSeparators)) {
+                        separator = part.integerFormat.groupingSeparators;
+                    }
+                    res.regex = '';
+                    if (part.component === 'z') {
+                        res.regex = 'GMT';
+                    }
+                    res.regex += '[-+][0-9]+';
+                    if (separator) {
+                        res.regex += separator.character + '[0-9]+';
+                    }
+                    res.parse = function(value) {
+                        if (part.component === 'z') {
+                            value = value.substring(3); // remove the leading GMT
+                        }
+                        let offsetHours = 0, offsetMinutes = 0;
+                        if (separator) {
+                            offsetHours = Number.parseInt(value.substring(0, value.indexOf(separator.character)));
+                            offsetMinutes = Number.parseInt(value.substring(value.indexOf(separator.character) + 1));
+                        } else {
+                            // depends on number of digits
+                            const numdigits = value.length - 1;
+                            if (numdigits <= 2) {
+                                // just hour offset
+                                offsetHours = Number.parseInt(value);
+                            } else {
+                                offsetHours = Number.parseInt(value.substring(0, 3));
+                                offsetMinutes = Number.parseInt(value.substring(3));
+                            }
+                        }
+                        return offsetHours * 60 + offsetMinutes;
+                    };
                 } else if (part.integerFormat) {
                     res = generateRegex(part.integerFormat);
                 } else {
@@ -985,6 +1039,7 @@ const dateTime = (function () {
         } else { // type === 'integer'
             matcher.type = 'integer';
             const isUpper = formatSpec.case === tcase.UPPER;
+
             switch (formatSpec.primary) {
                 case formats.LETTERS:
                     matcher.regex = isUpper ? '[A-Z]+' : '[a-z]+';
@@ -1005,7 +1060,12 @@ const dateTime = (function () {
                     };
                     break;
                 case formats.DECIMAL:
-                    matcher.regex = '[0-9]+';
+                    matcher.regex = '[0-9]';
+                    if (formatSpec.parseWidth) {
+                        matcher.regex += `{${formatSpec.parseWidth}}`;
+                    } else {
+                        matcher.regex += '+';
+                    }
                     if (formatSpec.ordinal) {
                         // ordinals
                         matcher.regex += '(?:th|st|nd|rd)';
@@ -1207,8 +1267,8 @@ const dateTime = (function () {
                 const firstJan = Date.UTC(components.Y, 0);
                 const offsetMillis = (components.d - 1) * 1000 * 60 * 60 * 24;
                 const derivedDate = new Date(firstJan + offsetMillis);
-                components.M = derivedDate.getMonth();
-                components.D = derivedDate.getDate();
+                components.M = derivedDate.getUTCMonth();
+                components.D = derivedDate.getUTCDate();
             }
             if (dateC) {
                 // TODO implement this
@@ -1233,6 +1293,10 @@ const dateTime = (function () {
             }
 
             var millis = Date.UTC(components.Y, components.M, components.D, components.H, components.m, components.s, components.f);
+            if(components.Z || components.z) {
+                // adjust for timezone
+                millis -= (components.Z || components.z) * 60 * 1000;
+            }
             return millis;
         }
     }

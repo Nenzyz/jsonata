@@ -107,9 +107,7 @@ const utils = (() => {
     }
 
     // istanbul ignore next
-    var $Symbol = typeof Symbol === "function" ? Symbol : {};
-    // istanbul ignore next
-    var iteratorSymbol = $Symbol.iterator || "@@iterator";
+    var iteratorSymbol = (typeof Symbol === "function" ? Symbol : {}).iterator || "@@iterator";
 
     /**
      * @param {Object} arg - expression to test
@@ -175,6 +173,32 @@ const utils = (() => {
         }
         return false;
     }
+
+    /**
+     * @param {Object} arg - expression to test
+     * @returns {boolean} - true if it is a promise
+     */
+    function isPromise(arg) {
+        return (
+            typeof arg === 'object' &&
+                arg !== null &&
+                'then' in arg &&
+                typeof arg.then === 'function'
+        );
+    }
+
+    /**
+     * converts a string to an array of characters
+     * @param {string} str - the input string
+     * @returns {Array} - the array of characters
+     */
+    function stringToArray(str) {
+        var arr = [];
+        for (let char of str) {
+            arr.push(char);
+        }
+        return arr;
+    }
     
     /**
      * Flatten array
@@ -214,7 +238,11 @@ const utils = (() => {
         isIterable,
         getFunctionArity,
         isDeepEqual,
-        flatten, isNode, isBrowser
+        stringToArray,
+        isPromise,
+        flatten,
+        isNode,
+        isBrowser,
     };
 })();
 
