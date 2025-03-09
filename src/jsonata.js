@@ -171,7 +171,7 @@ var jsonata = (function() {
         var loop;
         if (expr.expressions[0].value !== undefined) {
             var sample_result = await evaluate(expr.expressions[0].value, input, environment);
-            function * proc_sample(i) {
+            async function proc_sample(i) {
                 if ( !found || i.next !== undefined) {
                     var bool_result = await evaluate(i.expr, input, environment);
                     if (bool_result === sample_result) {
@@ -185,7 +185,7 @@ var jsonata = (function() {
                 await proc_sample(item);
             }
         } else {
-            function * proc(i) {
+            async function proc(i) {
                 if ( !found || i.next !== undefined) {
                     var bool_result = await evaluate(i.expr, input, environment);
                     if (bool_result) {

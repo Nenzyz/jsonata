@@ -1758,8 +1758,12 @@ const functions = (() => {
      * Merges an array of objects into a single object.  Duplicate properties are
      * overridden by entries later in the array
      * @param {*} arg - the objects to merge
+     * @param {*} argA - the 2nd objects to merge
+     * @param {*} opts - empty options
      * @returns {*} - the object
      */
+
+    // eslint-disable-next-line
     function merge(arg, argA, opts) {
         // undefined inputs always return undefined
         if (typeof arg === 'undefined') {
@@ -2000,7 +2004,7 @@ const functions = (() => {
     /**
      * Returns the values that appear in a sequence, with duplicates eliminated.
      * @param {Array} arr - An array or sequence of values
-     * @returns {Array} - sequence of distinct values
+     * @returns {Array} results - sequence of distinct values
      */
     function distinct(arr) {
         // undefined inputs always return undefined
@@ -2065,7 +2069,8 @@ const functions = (() => {
      *
      * @param {object} arg - printable string
      */
-    function* blog(arg) {
+    async function blog(arg) {
+        // eslint-disable-next-line no-console
         console.log(arg);
         return undefined;
     }
@@ -2074,7 +2079,8 @@ const functions = (() => {
      *
      * @param {object} arg - printable string
      */
-    function* slog(arg) {
+    async function slog(arg) {
+        // eslint-disable-next-line no-console
         console.log(arg);
         return undefined;
     }
@@ -2085,14 +2091,11 @@ const functions = (() => {
         match, contains, replace, split, join,
         formatNumber, formatBase, number, floor, ceil, round, abs, sqrt, power, random,
         boolean, not,
-        map, zip, filter, foldLeft, sift,
-        keys, lookup, append, exists, spread, merge, reverse, each, sort, shuffle,
-        base64encode, base64decode,
         map, zip, filter, single, foldLeft, sift,
         keys, lookup, append, exists, spread, merge, reverse, each, error, assert, type, sort, shuffle, distinct,
         base64encode, base64decode,  encodeUrlComponent, encodeUrl, decodeUrlComponent, decodeUrl
         // NB: TI: erlang specific procedures
-        , blog, slog 
+        , blog, slog
         //, dbg_on, dbg_off, trace_on, trace_off, kanren
         //, mod_date, to_date, date, now, clear_tz, set_tz
         //, eval, flatten, hash

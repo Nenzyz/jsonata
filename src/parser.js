@@ -2,9 +2,9 @@
  * © Copyright IBM Corp. 2016, 2018 All Rights Reserved
  *   Project name: JSONata
  *   This project is licensed under the MIT License, see LICENSE
- * 
- * 
- * 
+ *
+ *
+ *
  * More about here: http://crockford.com/javascript/tdop/tdop.html
  */
 
@@ -154,7 +154,7 @@ const parser = (() => {
                 position++;
                 currentChar = path.charAt(position);
             }
-            // TI parts single line comment '// ...' and eja doc element '/** ... */' 
+            // TI parts single line comment '// ...' and eja doc element '/** ... */'
             // skip single line comment
             if (currentChar === '/' && path.charAt(position + 1) === '/') {
                 position += 2;
@@ -306,6 +306,7 @@ const parser = (() => {
                 var ech;
                 for (; ;) {
                     ech = path.charAt(e);
+                    // eslint-disable-next-line no-prototype-builtins
                     if (e === length || ' \t\n\r\v'.indexOf(ech) > -1 ||  ( operators.hasOwnProperty(ech) && ech !== ":")) {
                         var ename = path.substring(position, e);
                         position = e;
@@ -420,26 +421,26 @@ const parser = (() => {
                     // TI parts - Special case for `template strings` of JavaScript
                     //   no nesting templated are allowed, an least for now
                     // TODO: this is a VERY dirty hack for syntactic sugar
-                    // TODO: different quotes should be avoided used in between substitutions 
-                    //    i.e. `some ‘asd’ ${…} "asdasd" ‘asdas’ ${…}` 
+                    // TODO: different quotes should be avoided used in between substitutions
+                    //    i.e. `some ‘asd’ ${…} "asdasd" ‘asdas’ ${…}`
                     //    such expression will not be able to process since part between two substitutions is used
                     //    "some 'asd'" & ( ${…} ) & "asdasd" 'asdas' & ( ${…}` ) & ""
-                    //    this part `"asdasd" 'asdas'` can't be quoted correctly 
-                    if (name.match(/(\${[^}]+})+/) != undefined) {
+                    //    this part `"asdasd" 'asdas'` can't be quoted correctly
+                    if (name.match(/(\${[^}]+})+/) !== undefined) {
                         var before_path = path.slice(0, position - 1);
                         var after_path = path.slice(end + 1);
 
                         var iterations = name.split(/(\${[^}]+})+/g);
                         var iter_out = [];
                         iterations.forEach(el => {
-                            if (el.substring(0,2) == "${" && el.slice(-1) == "}") {
+                            if (el.substring(0,2) === "${" && el.slice(-1) === "}") {
                                 iter_out.push(`& ( ${el.slice(2, el.length - 1)} ) &`);
                             } else {
-                                var qchar = 
-                                    (el.indexOf('"') == -1) ||
-                                    (el.indexOf('"') >= el.indexOf("'") && el.indexOf('"') != -1 && el.indexOf("'") != -1) || 
-                                    (el.indexOf("'") != -1) 
-                                    ? '"' : "'";
+                                var qchar =
+                                    (el.indexOf('"') === -1) ||
+                                    (el.indexOf('"') >= el.indexOf("'") && el.indexOf('"') !== -1 && el.indexOf("'") !== -1) ||
+                                    (el.indexOf("'") !== -1) ?
+                                        '"' : "'";
                                 iter_out.push(`${qchar}${el}${qchar}`);
                             }
                         });
@@ -482,6 +483,7 @@ const parser = (() => {
                             var name2 = "";
                             for (; ;) {
                                 ch2 = path.charAt(i2);
+                                // eslint-disable-next-line no-prototype-builtins
                                 if (i2 === length || ' \t\n\r\v'.indexOf(ch2) > -1 || operators.hasOwnProperty(ch2)) {
                                     name2 = path.substring(i + 2, i2);
                                     position = i2;
@@ -1475,7 +1477,7 @@ const parser = (() => {
                         case '~>':
                             // CONSTRUCTION YARD
                             result = {type: 'apply', value: expr.value, position: expr.position};
-                            result.rhs = processAST(expr.rhs);     
+                            result.rhs = processAST(expr.rhs);
                             result.lhs = processAST(expr.lhs);
 
                             if (result.rhs.type === 'path' || (result.rhs.type === 'variable' && result.rhs.value === '$')) {
@@ -1536,7 +1538,7 @@ const parser = (() => {
                 case 'unary':
                     result = {type: expr.type, value: expr.value, position: expr.position};
                     if (expr.value === '!') {
-                        result = {...result, type: "function", value: "(", arguments: [ processAST(expr.expression) ], procedure: {type: "variable", value: "not", position: expr.position}};
+                        result = {...result, type: "function", value: "(", arguments: [processAST(expr.expression)], procedure: {type: "variable", value: "not", position: expr.position}};
                     } else if (expr.value === '[') {
                         // array constructor - process each item
                         result.expressions = expr.expressions.map(function (item) {
@@ -1547,9 +1549,9 @@ const parser = (() => {
                     } else if (expr.value === "#'") {
                         // TI part
                         result = processAST(expr.expression);
-                        
+
                         var nprocedure = {type: 'function', name: expr.name, value: "(", position: expr.position, arguments: [], mode: "backtick"};
-                        nprocedure.procedure = result.type == "variable" ? result : result.steps[0];
+                        nprocedure.procedure = result.type === "variable" ? result : result.steps[0];
                         nprocedure.procedure.type = "variable";
 
                         if (nprocedure.procedure.predicate !== undefined) {
@@ -1587,6 +1589,7 @@ const parser = (() => {
                         return argAST;
                     });
                     // Ti part - eja lib bind
+                    // eslint-disable-next-line no-redeclare
                     var nprocedure = processAST(expr.procedure);
                     if (expr.procedure.mode === 'lib') {
                         result.procedure = expr.procedure;
@@ -1757,7 +1760,8 @@ const parser = (() => {
             };
             handleError(err);
         }
-        
+
+        // eslint-disable-next-line no-console
         if (utils.isBrowser) console.log("AST intermediate", expr);
 
         expr = processAST(expr);
@@ -1777,42 +1781,41 @@ const parser = (() => {
 
         return expr;
     };
-    
+
     // TI part
-    var parse_array = function (el) {
-        if (el.type !== undefined && el.type === "path") {
-            return el.steps.map(parse_array);
-        }
+    // var parse_array = function (el) {
+    //     if (el.type !== undefined && el.type === "path") {
+    //         return el.steps.map(parse_array);
+    //     }
 
-        var output = [el.value];
-        if (el.value !== undefined && el.value === "$") {
-            output = ["input"];
-        }
+    //     var output = [el.value];
+    //     if (el.value !== undefined && el.value === "$") {
+    //         output = ["input"];
+    //     }
 
-        if (el.predicate !== undefined && el.predicate[0] !== undefined) {
-            // output = output + "[" + el.predicate[0].value + "]";
-            output.push(el.predicate[0].value);
-        }
-        if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
-            // output = output + "[" + el.predicate[0].value + "]";
-            var v_value = typeof el.stages[0].value;
-            if (v_value == "number" || v_value == "string") output.push(el.stages[0].value);
-        } else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
-            var v_value = typeof el.stages[0].value;
-            if (v_value == "number" || v_value == "string") output.push(el.stages[0].expr.value);
-        }
+    //     if (el.predicate !== undefined && el.predicate[0] !== undefined) {
+    //         // output = output + "[" + el.predicate[0].value + "]";
+    //         output.push(el.predicate[0].value);
+    //     }
+    //     var v_value = typeof el.stages[0].value;
+    //     if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value !== undefined) {
+    //         // output = output + "[" + el.predicate[0].value + "]";
+    //         if (v_value === "number" || v_value === "string") output.push(el.stages[0].value);
+    //     } else if (el.stages !== undefined && el.stages[0] !== undefined && el.stages[0].value == undefined) {
+    //         if (v_value === "number" || v_value === "string") output.push(el.stages[0].expr.value);
+    //     }
 
-        var rest = [];
-        if (el.steps !== undefined) {
-            rest = el.steps.map(parse_array);
-        }
+    //     var rest = [];
+    //     if (el.steps !== undefined) {
+    //         rest = el.steps.map(parse_array);
+    //     }
 
-        if (rest !== []) {
-            return output.concat(rest);
-        }
+    //     if (rest.length > 0) {
+    //         return output.concat(rest);
+    //     }
 
-        return output;
-    };
+    //     return output;
+    // };
 
     return parser;
 })();

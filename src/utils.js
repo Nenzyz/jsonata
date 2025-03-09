@@ -199,7 +199,7 @@ const utils = (() => {
         }
         return arr;
     }
-    
+
     /**
      * Flatten array
      * @param {*} array array value
@@ -218,14 +218,14 @@ const utils = (() => {
     }
 
     // TI part - https://www.npmjs.com/package/browser-or-node
-    const isBrowser = 
-        typeof window !== 'undefined' && 
+    const isBrowser =
+        typeof window !== 'undefined' &&
         typeof window.document !== 'undefined';
 
     const isNode =
         typeof process !== 'undefined' &&
-        process.versions != null &&
-        process.versions.node != null;
+        process.versions !== null &&
+        process.versions.node !== null;
 
     return {
         isNumeric,
